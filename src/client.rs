@@ -1,11 +1,11 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use quinn::TransportConfig;
-use tokio_tun::TunBuilder;
 use tracing::info;
 use crate::Args;
 use crate::connection::relay_packets;
+use crate::tun::make_tun;
 use crate::utils::{bind_socket, PERF_CIPHER_SUITES};
 
 struct SkipServerVerification;
@@ -63,22 +63,14 @@ pub async fn run_client(args: Args) -> Result<()> {
 
     info!("Connection established: {:?}", args.host);
 
-    let tun_ip = "10.0.1.1".parse()?;
-    let tun = TunBuilder::new()
-        .name("")
-        .tap(false)
-        .packet_info(false)
-        .mtu(1350)
-        .up()
-        .address(tun_ip)
-        .destination("10.0.0.1".parse()?)
-        .netmask("255.255.255.255".parse()?)
-        .try_build()
-        .map_err(|e| anyhow!("{e}"))?;
+    let tun = make_tun(
+        "".to_string(),
+        "10.0.0.2".parse()?,
+        "10.0.0.1".parse()?,
+        1350
+    )?;
 
-    info!("Created a tun interface with IP: {tun_ip}");
-
-    relay_packets(Arc::new(connection), tun).await?;
+    relay_packets(Arc::new(connection), tun, 1350).await?;
 
     Ok(())
 }

@@ -2,6 +2,7 @@ mod utils;
 mod client;
 mod server;
 mod connection;
+mod tun;
 
 use std::net::SocketAddr;
 use std::process::exit;

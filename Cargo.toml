@@ -15,7 +15,8 @@ socket2 = "^0.4"
 bytes = "^1.2.1"
 
 # Tokio and futures
-tokio = { version = "^1.21.2", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
+tokio = { version = "^1.24", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
+#futures = { version = "^0.3.25" }
 futures-util = "^0.3.25"
 
 # TLS

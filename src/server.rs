@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use crate::Args;
+use crate::tun::make_tun;
 
 use anyhow::{anyhow, Result};
 use quinn::{Connection, TransportConfig};
-use tokio_tun::{Tun, TunBuilder};
+use tokio_tun::Tun;
 use tracing::info;
 use crate::connection::relay_packets;
 use crate::utils::{bind_socket, PERF_CIPHER_SUITES};
@@ -43,31 +44,23 @@ pub async fn run_server(args: Args) -> Result<()> {
 
     info!("Listening on {}", endpoint.local_addr().unwrap());
 
-    let tun_ip = "10.0.0.1".parse()?;
-    let tun = TunBuilder::new()
-        .name("")
-        .tap(false)
-        .packet_info(false)
-        .mtu(1350)
-        .up()
-        .address(tun_ip)
-        .destination("10.0.1.1".parse()?)
-        .netmask("255.255.255.255".parse()?)
-        .try_build()
-        .map_err(|e| anyhow!("{e}"))?;
+    let tun = make_tun(
+        "".to_string(),
+        "10.0.0.1".parse()?,
+        "10.0.0.2".parse()?,
+        1350
+    )?;
 
-    info!("Created a tun interface with IP: {tun_ip}");
-
-    handle(endpoint.accept().await.ok_or(anyhow!("No connection"))?, tun).await?;
+    handle(endpoint.accept().await.ok_or_else(|| anyhow!("No connection"))?, tun, 1350).await?;
 
     Ok(())
 }
 
-async fn handle(handshake: quinn::Connecting, interface: Tun) -> Result<()> {
+async fn handle(handshake: quinn::Connecting, interface: Tun, mtu: usize) -> Result<()> {
     let connection: Connection = handshake.await?;
     info!("{:?} connected", connection.remote_address());
 
-    relay_packets(Arc::new(connection), interface).await?;
+    relay_packets(Arc::new(connection), interface, mtu).await?;
 
     Ok(())
 }
