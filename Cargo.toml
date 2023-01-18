@@ -15,9 +15,12 @@ socket2 = "^0.4"
 bytes = "^1.2.1"
 
 # Tokio and futures
-tokio = { version = "^1.24", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
-#futures = { version = "^0.3.25" }
+tokio = { version = "^1.24", features = ["rt-multi-thread", "macros", "sync", "io-util", "fs"] }
 futures-util = "^0.3.25"
+
+# Configuration
+figment = { version = "^0.10", features = ["toml", "env"] }
+serde = { version = "^1.0", features = ["derive"] }
 
 # TLS
 rustls = { version = "^0.20.6", default-features = false, features = ["dangerous_configuration"] }
@@ -31,4 +34,5 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 
 # Utils
 anyhow = "^1.0.22"
-clap = { version = "^4.0.10", features = ["derive"] }
+clap = { version = "^4.1", features = ["derive"] }
+once_cell = "^1.17.0"
