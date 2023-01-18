@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tracing::info;
 use anyhow::{Result, anyhow};
 use bytes::BytesMut;
 use tokio_tun::Tun;

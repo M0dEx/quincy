@@ -5,7 +5,7 @@ mod connection;
 mod tun;
 mod config;
 mod constants;
-mod cryptography;
+mod certificates;
 
 use anyhow::Result;
 use std::path::PathBuf;
