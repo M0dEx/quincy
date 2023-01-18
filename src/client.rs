@@ -1,14 +1,14 @@
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::sync::Arc;
-use anyhow::{anyhow, Result};
-use quinn::{Endpoint, TransportConfig};
-use tracing::info;
 use crate::config::{Config, ConnectionConfig};
 use crate::connection::relay_packets;
 use crate::constants::{PERF_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
 use crate::tun::make_tun;
 use crate::utils::bind_socket;
+use anyhow::{anyhow, Result};
+use quinn::{Endpoint, TransportConfig};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use tracing::info;
 
 struct SkipServerVerification;
 
@@ -55,9 +55,7 @@ fn configure_quinn(connection_config: &ConnectionConfig) -> Result<quinn::Client
     Ok(quinn_config)
 }
 
-fn create_quinn_endpoint(
-    connection_config: &ConnectionConfig,
-) -> Result<Endpoint> {
+fn create_quinn_endpoint(connection_config: &ConnectionConfig) -> Result<Endpoint> {
     let bind_addr: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     info!("Local address: {:?}", bind_addr);
 
@@ -73,23 +71,32 @@ fn create_quinn_endpoint(
 }
 
 pub async fn run_client(config: Config) -> Result<()> {
-    let client_config = config.client.ok_or_else(|| anyhow!("Config is validated and contains the client configuration."))?;
+    let client_config = config
+        .client
+        .ok_or_else(|| anyhow!("Config is validated and contains the client configuration."))?;
     info!("Connecting to: {:?}", client_config.connection_address);
 
     let quinn_config = configure_quinn(&config.connection)?;
     let endpoint = create_quinn_endpoint(&config.connection)?;
 
     let connection = endpoint
-        .connect_with(quinn_config, SocketAddr::from_str(&client_config.connection_address)?, "localhost")?
+        .connect_with(
+            quinn_config,
+            SocketAddr::from_str(&client_config.connection_address)?,
+            "localhost",
+        )?
         .await?;
 
-    info!("Connection established: {:?}", client_config.connection_address);
+    info!(
+        "Connection established: {:?}",
+        client_config.connection_address
+    );
 
     let tun = make_tun(
         "".to_string(),
         "10.0.0.2".parse()?,
         "10.0.0.1".parse()?,
-        1350
+        1350,
     )?;
 
     relay_packets(Arc::new(connection), tun, 1350).await?;

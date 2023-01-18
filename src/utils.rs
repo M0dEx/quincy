@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
 use anyhow::{Context, Result};
 use socket2::{Domain, Protocol, Socket, Type};
+use std::net::SocketAddr;
 use tracing::warn;
 
 pub fn bind_socket(

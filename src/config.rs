@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Result};
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
+use serde::Deserialize;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use figment::{Figment, providers::{Format, Toml, Env}};
-use serde::Deserialize;
 
 #[derive(Copy, Clone)]
 pub enum Mode {
@@ -77,11 +80,11 @@ impl Config {
 
         let valid = match mode {
             Mode::CLIENT => config.client.is_some() && config.server.is_none(),
-            Mode::SERVER => config.server.is_some() && config.client.is_none()
+            Mode::SERVER => config.server.is_some() && config.client.is_none(),
         };
 
         if !valid {
-            return Err(anyhow!("Only one section (config/server) in the configuration file might be configured at once."))
+            return Err(anyhow!("Only one section (config/server) in the configuration file might be configured at once."));
         }
 
         Ok(config)

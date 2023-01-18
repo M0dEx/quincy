@@ -1,20 +1,20 @@
-mod utils;
-mod client;
-mod server;
-mod connection;
-mod tun;
-mod config;
-mod constants;
 mod certificates;
+mod client;
+mod config;
+mod connection;
+mod constants;
+mod server;
+mod tun;
+mod utils;
 
-use anyhow::Result;
-use std::path::PathBuf;
-use clap::Parser;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use crate::client::run_client;
 use crate::config::{Config, Mode};
 use crate::server::run_server;
+use anyhow::Result;
+use clap::Parser;
+use std::path::PathBuf;
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "quincy")]

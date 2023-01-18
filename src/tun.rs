@@ -1,9 +1,14 @@
 use std::net::Ipv4Addr;
 
 use anyhow::{anyhow, Result};
-use tokio_tun::{TunBuilder, Tun};
+use tokio_tun::{Tun, TunBuilder};
 
-pub fn make_tun(name: String, local_addr: Ipv4Addr, remote_addr: Ipv4Addr, mtu: u32) -> Result<Tun> {
+pub fn make_tun(
+    name: String,
+    local_addr: Ipv4Addr,
+    remote_addr: Ipv4Addr,
+    mtu: u32,
+) -> Result<Tun> {
     let tun = TunBuilder::new()
         .name(&name)
         .tap(false)

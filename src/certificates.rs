@@ -1,9 +1,9 @@
+use anyhow::anyhow;
+use anyhow::Result;
+use rustls::{Certificate, PrivateKey};
 use std::fs::File;
 use std::io::BufReader;
-use anyhow::Result;
 use std::path::PathBuf;
-use anyhow::anyhow;
-use rustls::{Certificate, PrivateKey};
 use tokio::task;
 
 fn load_certificates_bytes_from_file(path: PathBuf) -> Result<Vec<Vec<u8>>> {
@@ -28,22 +28,18 @@ fn load_private_key_bytes_from_file(path: PathBuf) -> Result<Vec<u8>> {
 }
 
 pub async fn load_certificates_from_file(path: PathBuf) -> Result<Vec<Certificate>> {
-    let certificates_bytes = task::spawn_blocking(|| {
-        load_certificates_bytes_from_file(path)
-    }).await??;
+    let certificates_bytes =
+        task::spawn_blocking(|| load_certificates_bytes_from_file(path)).await??;
 
-    Ok(
-        certificates_bytes
-            .into_iter()
-            .map(|certificate_bytes| Certificate(certificate_bytes))
-            .collect()
-    )
+    Ok(certificates_bytes
+        .into_iter()
+        .map(|certificate_bytes| Certificate(certificate_bytes))
+        .collect())
 }
 
 pub async fn load_private_key_from_file(path: PathBuf) -> Result<PrivateKey> {
-    let private_key_bytes = task::spawn_blocking(|| {
-        load_private_key_bytes_from_file(path)
-    }).await??;
+    let private_key_bytes =
+        task::spawn_blocking(|| load_private_key_bytes_from_file(path)).await??;
 
     Ok(PrivateKey(private_key_bytes))
 }
