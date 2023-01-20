@@ -13,6 +13,7 @@ quinn = { version = "^0.9.0", features = ["runtime-tokio"] }
 tokio-tun = "^0.7.0"
 socket2 = "^0.4"
 bytes = "^1.2.1"
+etherparse = "^0.13"
 
 # Tokio and futures
 tokio = { version = "^1.24", features = ["rt-multi-thread", "macros", "sync", "io-util", "fs"] }

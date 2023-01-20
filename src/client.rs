@@ -95,6 +95,7 @@ pub async fn run_client(config: Config) -> Result<()> {
     let tun = make_tun(
         "".to_string(),
         "10.0.0.2".parse()?,
+        "255.0.0.0".parse()?,
         "10.0.0.1".parse()?,
         1350,
     )?;

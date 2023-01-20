@@ -1,15 +1,13 @@
-use crate::tun::make_tun;
+use crate::tun::{make_tun, TunWorker};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::config::{Config, ConnectionConfig, ServerConfig};
-use crate::connection::relay_packets;
 use crate::constants::{PERF_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
-use quinn::{Connection, Endpoint, TransportConfig};
-use tokio_tun::Tun;
+use quinn::{Endpoint, TransportConfig};
 use tracing::info;
 
 async fn configure_quinn(
@@ -77,28 +75,13 @@ pub async fn run_server(config: Config) -> Result<()> {
     let tun = make_tun(
         "".to_string(),
         "10.0.0.1".parse()?,
-        "10.0.0.2".parse()?,
+        "255.0.0.0".parse()?,
+        "10.0.0.0".parse()?,
         1350,
     )?;
 
-    handle(
-        endpoint
-            .accept()
-            .await
-            .ok_or_else(|| anyhow!("No connection"))?,
-        tun,
-        1350,
-    )
-    .await?;
+    let mut tun_worker = TunWorker::new(tun, 1350);
+    tun_worker.start_workers().await?;
 
-    Ok(())
-}
-
-async fn handle(handshake: quinn::Connecting, interface: Tun, mtu: usize) -> Result<()> {
-    let connection: Connection = handshake.await?;
-    info!("{:?} connected", connection.remote_address());
-
-    relay_packets(Arc::new(connection), interface, mtu).await?;
-
-    Ok(())
+    todo!("Add new connection handling");
 }
