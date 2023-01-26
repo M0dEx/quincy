@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
+use crate::connection::QuincyConnection;
 use anyhow::{anyhow, Result};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use etherparse::{IpHeader, PacketHeaders};
-use quinn::Connection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
@@ -16,9 +16,9 @@ use tracing::warn;
 pub struct TunWorker {
     tun_read: Arc<RwLock<ReadHalf<Tun>>>,
     tun_write: Arc<RwLock<WriteHalf<Tun>>>,
-    write_queue_sender: Arc<UnboundedSender<BytesMut>>,
-    write_queue_receiver: Arc<RwLock<UnboundedReceiver<BytesMut>>>,
-    active_connections: Arc<RwLock<HashMap<IpAddr, Arc<Connection>>>>,
+    write_queue_sender: Arc<UnboundedSender<Bytes>>,
+    write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,
+    active_connections: Arc<RwLock<HashMap<IpAddr, Arc<QuincyConnection>>>>,
     buffer_size: usize,
     reader_task: Option<JoinHandle<Result<()>>>,
     writer_task: Option<JoinHandle<Result<()>>>,
@@ -41,14 +41,14 @@ impl TunWorker {
         }
     }
 
-    pub async fn add_connection(&self, remote_addr: IpAddr, connection: Arc<Connection>) {
+    pub async fn add_connection(&self, remote_addr: IpAddr, connection: Arc<QuincyConnection>) {
         self.active_connections
             .write()
             .await
             .insert(remote_addr, connection);
     }
 
-    pub fn get_tun_sender(&self) -> Arc<UnboundedSender<BytesMut>> {
+    pub fn get_tun_sender(&self) -> Arc<UnboundedSender<Bytes>> {
         self.write_queue_sender.clone()
     }
 
@@ -76,29 +76,29 @@ impl TunWorker {
         Ok(())
     }
 
-    pub async fn stop_workers(&mut self) -> Result<()> {
-        let reader_task = self
-            .reader_task
-            .as_mut()
-            .ok_or_else(|| anyhow!("Reader task not active"))?;
-        reader_task.abort();
-
-        self.reader_task = None;
-
-        let writer_task = self
-            .writer_task
-            .as_mut()
-            .ok_or_else(|| anyhow!("Writer task not active"))?;
-        writer_task.abort();
-
-        self.writer_task = None;
-
-        Ok(())
-    }
+    // pub async fn stop_workers(&mut self) -> Result<()> {
+    //     let reader_task = self
+    //         .reader_task
+    //         .as_mut()
+    //         .ok_or_else(|| anyhow!("Reader task not active"))?;
+    //     reader_task.abort();
+    //
+    //     self.reader_task = None;
+    //
+    //     let writer_task = self
+    //         .writer_task
+    //         .as_mut()
+    //         .ok_or_else(|| anyhow!("Writer task not active"))?;
+    //     writer_task.abort();
+    //
+    //     self.writer_task = None;
+    //
+    //     Ok(())
+    // }
 
     async fn process_incoming_data(
         tun_read: Arc<RwLock<ReadHalf<Tun>>>,
-        active_connections: Arc<RwLock<HashMap<IpAddr, Arc<Connection>>>>,
+        active_connections: Arc<RwLock<HashMap<IpAddr, Arc<QuincyConnection>>>>,
         buffer_size: usize,
     ) -> Result<()> {
         let mut tun_read = tun_read.write().await;
@@ -123,7 +123,8 @@ impl TunWorker {
 
             let connection = connections
                 .get(&dest_addr)
-                .ok_or_else(|| anyhow!("Received a packet with invalid destination IP"))?;
+                .ok_or_else(|| anyhow!("Received a packet with invalid destination IP"))?
+                .get_connection();
 
             let max_datagram_size = connection.max_datagram_size().ok_or_else(|| {
                 anyhow!(
@@ -147,17 +148,12 @@ impl TunWorker {
 
     async fn process_outgoing_data(
         tun_write: Arc<RwLock<WriteHalf<Tun>>>,
-        write_queue_receiver: Arc<RwLock<UnboundedReceiver<BytesMut>>>,
+        write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,
     ) -> Result<()> {
         let mut tun_write = tun_write.write().await;
         let mut write_queue_receiver = write_queue_receiver.write().await;
 
-        loop {
-            let buf = match write_queue_receiver.recv().await {
-                Some(buf) => buf,
-                None => break,
-            };
-
+        while let Some(buf) = write_queue_receiver.recv().await {
             tun_write.write_all(&buf).await?;
         }
 
@@ -165,13 +161,7 @@ impl TunWorker {
     }
 }
 
-pub fn make_tun(
-    name: String,
-    local_addr: Ipv4Addr,
-    mask: Ipv4Addr,
-    remote_addr: Ipv4Addr,
-    mtu: u32,
-) -> Result<Tun> {
+pub fn make_tun(name: String, local_addr: Ipv4Addr, mask: Ipv4Addr, mtu: u32) -> Result<Tun> {
     let tun = TunBuilder::new()
         .name(&name)
         .tap(false)
@@ -179,7 +169,6 @@ pub fn make_tun(
         .mtu(mtu as i32)
         .up()
         .address(local_addr)
-        .destination(remote_addr)
         .netmask(mask)
         .try_build()
         .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
