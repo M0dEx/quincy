@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Mode {
     CLIENT,
     SERVER,
@@ -40,29 +40,23 @@ pub struct ClientConfig {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct ServerConfig {
-    pub certificates_file: PathBuf,
+    pub certificate_file: PathBuf,
     pub certificate_key_file: PathBuf,
     #[serde(default = "default_bind_address")]
     pub bind_address: Ipv4Addr,
     #[serde(default = "default_bind_port")]
     pub bind_port: u16,
-    pub dhcp: DHCPConfig,
+    pub address_server: Ipv4Addr,
+    pub address_mask: Ipv4Addr,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
-    pub mtu: u16,
+    pub mtu: u32,
     #[serde(default = "default_buffer_size")]
     pub send_buffer_size: u64,
     #[serde(default = "default_buffer_size")]
     pub recv_buffer_size: u64,
-}
-
-#[derive(Debug, PartialEq, Deserialize)]
-pub struct DHCPConfig {
-    pub address_server: Ipv4Addr,
-    pub address_range_start: Ipv4Addr,
-    pub address_range_end: Ipv4Addr,
 }
 
 impl Config {
@@ -79,12 +73,15 @@ impl Config {
         let config: Config = figment.extract()?;
 
         let valid = match mode {
-            Mode::CLIENT => config.client.is_some() && config.server.is_none(),
-            Mode::SERVER => config.server.is_some() && config.client.is_none(),
+            Mode::CLIENT => config.client.is_some(),
+            Mode::SERVER => config.server.is_some(),
         };
 
         if !valid {
-            return Err(anyhow!("Only one section (config/server) in the configuration file might be configured at once."));
+            return Err(anyhow!(
+                "The configuration section for the given mode '{:?}' is missing",
+                mode
+            ));
         }
 
         Ok(config)
