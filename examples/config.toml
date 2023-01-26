@@ -1,0 +1,14 @@
+[client]
+username = "username"
+password = "password"
+connection_address = "192.168.20.20:55555"
+
+[server]
+certificate_file = "examples/cert.pem"
+certificate_key_file = "examples/key.pem"
+
+address_server = "10.0.0.1"
+address_mask = "255.0.0.0"
+
+[connection]
+mtu = 1350
