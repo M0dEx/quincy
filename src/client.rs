@@ -1,6 +1,8 @@
 use crate::config::{Config, ConnectionConfig};
 use crate::connection::relay_packets;
-use crate::constants::{PERF_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
+use crate::constants::{
+    PERF_CIPHER_SUITES, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+};
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Endpoint, TransportConfig};
@@ -9,7 +11,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio_tun::TunBuilder;
-use tracing::info;
+use tracing::{debug, info};
 
 struct SkipServerVerification;
 
@@ -49,7 +51,7 @@ fn configure_quinn(connection_config: &ConnectionConfig) -> Result<quinn::Client
 
     // TODO: Investigate whether there could be a better solution
     transport_config.max_idle_timeout(None);
-    transport_config.initial_max_udp_payload_size(connection_config.mtu as u16);
+    transport_config.initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
 
     quinn_config.transport_config(Arc::new(transport_config));
 
@@ -97,12 +99,12 @@ pub async fn run_client(config: Config) -> Result<()> {
     let ip = Ipv4Addr::from(address_stream.read_u32().await?);
     let mask = Ipv4Addr::from(address_stream.read_u32().await?);
 
-    info!("Received TUN IP address {} with mask {}", ip, mask,);
+    debug!("Received TUN IP address {} with mask {}", ip, mask,);
 
     let tun = TunBuilder::new()
         .name("")
         .tap(false)
-        .packet_info(false)
+        .packet_info(true)
         .mtu(config.connection.mtu as i32)
         .up()
         .address(ip)
@@ -110,7 +112,9 @@ pub async fn run_client(config: Config) -> Result<()> {
         .try_build()
         .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
 
-    relay_packets(Arc::new(connection), tun, 1350).await?;
+    debug!("Created a TUN interface");
+
+    relay_packets(Arc::new(connection), tun, config.connection.mtu as usize).await?;
 
     Ok(())
 }

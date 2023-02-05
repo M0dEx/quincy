@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use tokio_tun::Tun;
-use tracing::info;
+use tracing::debug;
 
 pub struct QuincyConnection {
     connection: Arc<Connection>,
@@ -29,7 +29,7 @@ impl QuincyConnection {
     ) -> Result<()> {
         loop {
             let data = connection.read_datagram().await?;
-            info!(
+            debug!(
                 "Received {} bytes from {:?}",
                 data.len(),
                 connection.remote_address()
@@ -62,7 +62,7 @@ impl QuincyConnection {
 pub async fn relay_packets(connection: Arc<Connection>, interface: Tun, mtu: usize) -> Result<()> {
     let (read, write) = tokio::io::split(interface);
 
-    let (_, _) = futures_util::try_join!(
+    let (_, _) = tokio::try_join!(
         tokio::spawn(handle_send(connection.clone(), read, mtu)),
         tokio::spawn(handle_recv(connection.clone(), write))
     )?;
@@ -75,6 +75,7 @@ async fn handle_send(
     mut read_interface: ReadHalf<Tun>,
     interface_mtu: usize,
 ) -> Result<()> {
+    debug!("Started send task");
     loop {
         let buf_size = connection.max_datagram_size().ok_or_else(|| {
             anyhow!("The other side of the connection is refusing to provide a max datagram size")
@@ -88,7 +89,7 @@ async fn handle_send(
 
         let mut buf = BytesMut::with_capacity(buf_size);
         read_interface.read_buf(&mut buf).await?;
-        info!(
+        debug!(
             "Sending {} bytes to {:?}",
             buf.len(),
             connection.remote_address()
@@ -102,15 +103,15 @@ async fn handle_recv(
     connection: Arc<Connection>,
     mut write_interface: WriteHalf<Tun>,
 ) -> Result<()> {
+    debug!("Started recv task");
     loop {
         let data = connection.read_datagram().await?;
-        info!(
+        debug!(
             "Received {} bytes from {:?}",
             data.len(),
             connection.remote_address()
         );
 
-        // info!("Writing {} bytes of data to interface", data.len());
         write_interface.write_all(&data).await?;
     }
 }

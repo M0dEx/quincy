@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_tun::{Tun, TunBuilder};
-use tracing::warn;
+use tracing::{debug, warn};
 
 pub struct TunWorker {
     tun_read: Arc<RwLock<ReadHalf<Tun>>>,
@@ -103,12 +103,19 @@ impl TunWorker {
     ) -> Result<()> {
         let mut tun_read = tun_read.write().await;
 
+        debug!("Started incoming tunnel worker");
         loop {
             let mut buf = BytesMut::with_capacity(buffer_size);
 
             tun_read.read_buf(&mut buf).await?;
+            debug!(
+                "Read {} bytes from TUN interface: {:?}",
+                buf.len(),
+                buf.iter().map(|byte| *byte as u32).collect::<Vec<u32>>()
+            );
 
-            let headers = PacketHeaders::from_ethernet_slice(&buf)?;
+            let headers = PacketHeaders::from_ip_slice(&buf[4..])?;
+            debug!("Packet header: {:?}", headers);
             let ip_header = match headers.ip {
                 Some(ip_header) => ip_header,
                 None => continue,
@@ -118,13 +125,15 @@ impl TunWorker {
                 IpHeader::Version4(header, _) => header.destination.into(),
                 IpHeader::Version6(header, _) => header.destination.into(),
             };
+            debug!("Destination address for packet: {dest_addr}");
 
             let connections = active_connections.read().await;
 
-            let connection = connections
-                .get(&dest_addr)
-                .ok_or_else(|| anyhow!("Received a packet with invalid destination IP"))?
-                .get_connection();
+            let connection = match connections.get(&dest_addr) {
+                Some(connection) => connection.get_connection(),
+                None => continue,
+            };
+            debug!("Found connection for IP {dest_addr}");
 
             let max_datagram_size = connection.max_datagram_size().ok_or_else(|| {
                 anyhow!(
@@ -153,6 +162,7 @@ impl TunWorker {
         let mut tun_write = tun_write.write().await;
         let mut write_queue_receiver = write_queue_receiver.write().await;
 
+        debug!("Started outgoing tunnel worker");
         while let Some(buf) = write_queue_receiver.recv().await {
             tun_write.write_all(&buf).await?;
         }
@@ -165,7 +175,7 @@ pub fn make_tun(name: String, local_addr: Ipv4Addr, mask: Ipv4Addr, mtu: u32) ->
     let tun = TunBuilder::new()
         .name(&name)
         .tap(false)
-        .packet_info(false)
+        .packet_info(true)
         .mtu(mtu as i32)
         .up()
         .address(local_addr)

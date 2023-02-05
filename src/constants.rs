@@ -8,3 +8,5 @@ pub static PERF_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
 pub static TLS_PROTOCOL_VERSIONS: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
 
 pub static TLS_ALPN_PROTOCOLS: Lazy<Vec<Vec<u8>>> = Lazy::new(|| vec![b"quincy".to_vec()]);
+
+pub static QUIC_MTU_OVERHEAD: u16 = 42;

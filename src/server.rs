@@ -5,12 +5,14 @@ use std::sync::Arc;
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::config::{Config, ConnectionConfig, ServerConfig};
 use crate::connection::QuincyConnection;
-use crate::constants::{PERF_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
+use crate::constants::{
+    PERF_CIPHER_SUITES, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+};
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Connection, Endpoint, TransportConfig};
 use tokio::io::AsyncWriteExt;
-use tracing::info;
+use tracing::{debug, info};
 
 async fn configure_quinn(
     server_config: &ServerConfig,
@@ -33,7 +35,7 @@ async fn configure_quinn(
 
     // TODO: Investigate whether there could be a better solution
     transport_config.max_idle_timeout(None);
-    transport_config.initial_max_udp_payload_size(connection_config.mtu as u16);
+    transport_config.initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
 
     quinn_config.transport_config(Arc::new(transport_config));
 
@@ -84,11 +86,14 @@ pub async fn run_server(config: Config) -> Result<()> {
     let mut tun_worker = TunWorker::new(tun, config.connection.mtu as usize);
     tun_worker.start_workers().await?;
 
+    let mut current_client_ip = server_config.address_server;
+
     while let Some(handshake) = endpoint.accept().await {
-        let client_tun_ip = get_next_free_client_ip(server_config.address_server);
+        current_client_ip = get_next_free_client_ip(current_client_ip);
         let ip_mask = server_config.address_mask;
 
-        handle_incoming_connection(&tun_worker, client_tun_ip, ip_mask, handshake.await?).await?;
+        handle_incoming_connection(&tun_worker, current_client_ip, ip_mask, handshake.await?)
+            .await?;
     }
 
     Ok(())
@@ -100,30 +105,32 @@ async fn handle_incoming_connection(
     ip_mask: Ipv4Addr,
     connection: Connection,
 ) -> Result<()> {
+    debug!(
+        "Received incoming connection from {}",
+        connection.remote_address().ip()
+    );
     let mut address_stream = connection.open_uni().await?;
 
     address_stream.write_u32(client_tun_ip.into()).await?;
     address_stream.write_u32(ip_mask.into()).await?;
 
-    info!(
-        "Sent address information to client {} (remote address {})",
-        client_tun_ip,
-        connection.remote_address().ip()
-    );
+    debug!("Sent address information to client {client_tun_ip}");
 
     let mut connection = QuincyConnection::new(connection, tun_worker.get_tun_sender());
     connection.start_worker()?;
+    debug!("Started connection worker for client {client_tun_ip}");
 
     tun_worker
         .add_connection(IpAddr::V4(client_tun_ip), Arc::new(connection))
         .await;
+    debug!("Added connection worker for client {client_tun_ip} to TunWorker");
 
     Ok(())
 }
 
 fn get_next_free_client_ip(server_ip: Ipv4Addr) -> Ipv4Addr {
     let mut server_ip_bytes = server_ip.octets();
-    server_ip_bytes[3] = 2 as u8;
+    server_ip_bytes[3] += 1 as u8;
 
     Ipv4Addr::from(server_ip_bytes)
 }
