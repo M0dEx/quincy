@@ -23,12 +23,12 @@ impl From<String> for Mode {
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
+
 pub struct Config {
     pub client: Option<ClientConfig>,
     pub server: Option<ServerConfig>,
     pub connection: ConnectionConfig,
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
+    pub log: LogConfig,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -57,6 +57,12 @@ pub struct ConnectionConfig {
     pub send_buffer_size: u64,
     #[serde(default = "default_buffer_size")]
     pub recv_buffer_size: u64,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+pub struct LogConfig {
+    #[serde(default = "default_log_level")]
+    pub level: String,
 }
 
 impl Config {

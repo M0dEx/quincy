@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     let args: Args = Args::parse();
     let config = Config::from_path(&args.config_path, &args.env_prefix, args.mode)?;
 
-    enable_tracing(&config.log_level);
+    enable_tracing(&config.log.level);
 
     match args.mode {
         Mode::CLIENT => run_client(config).await,
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
     }
 }
 
-fn enable_tracing(log_level: &String) {
+fn enable_tracing(log_level: &str) {
     let registry = tracing_subscriber::Registry::default();
     let fmt_layer = tracing_subscriber::fmt::Layer::new();
     let filter_layer = EnvFilter::try_new(log_level).unwrap();

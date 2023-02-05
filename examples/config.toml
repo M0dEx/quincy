@@ -11,4 +11,7 @@ address_server = "10.0.0.1"
 address_mask = "255.0.0.0"
 
 [connection]
-mtu = 1350
+mtu = 1400
+
+[log]
+level = "debug"
