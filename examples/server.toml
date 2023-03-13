@@ -1,0 +1,12 @@
+[tunnels.tun0]
+name = "tun0"
+certificate_file = "examples/server_chain.pem"
+certificate_key_file = "examples/server_key.pem"
+address_server = "10.0.0.1"
+address_mask = "255.255.255.0"
+
+[connection]
+mtu = 1400
+
+[log]
+level = "debug"

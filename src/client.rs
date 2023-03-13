@@ -1,8 +1,5 @@
-use crate::config::{Config, ConnectionConfig};
+use crate::config::{ClientConfig, ConnectionConfig};
 use crate::connection::relay_packets;
-use crate::constants::{
-    PERF_CIPHER_SUITES, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
-};
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Endpoint, TransportConfig};
@@ -11,37 +8,38 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio_tun::TunBuilder;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
+use rustls::{Certificate, RootCertStore};
+use crate::certificates::load_certificates_from_file;
+use crate::constants::{QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
 
-struct SkipServerVerification;
 
-impl SkipServerVerification {
-    fn new() -> Arc<Self> {
-        Arc::new(Self)
+fn configure_quinn(config: &ClientConfig) -> Result<quinn::ClientConfig> {
+    let trusted_certificates: Vec<Certificate> = config
+        .authentication
+        .trusted_certificates
+        .iter()
+        .filter_map(|cert_path| match load_certificates_from_file(cert_path) {
+            Ok(certificates) => Some(certificates),
+            Err(e) => {
+                error!("Could not load certificates from {cert_path:?} due to an error: {e}");
+                None
+            }
+        })
+        .flatten()
+        .collect();
+
+    let mut cert_store = RootCertStore::empty();
+
+    for certificate in trusted_certificates {
+        cert_store.add(&certificate)?;
     }
-}
 
-impl rustls::client::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp_response: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
-}
-
-fn configure_quinn(connection_config: &ConnectionConfig) -> Result<quinn::ClientConfig> {
     let mut rustls_config = rustls::ClientConfig::builder()
-        .with_cipher_suites(PERF_CIPHER_SUITES)
+        .with_cipher_suites(QUINCY_CIPHER_SUITES)
         .with_safe_default_kx_groups()
         .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-        // TODO: Get rid of this
-        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_root_certificates(cert_store)
         .with_no_client_auth();
 
     rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
@@ -50,8 +48,9 @@ fn configure_quinn(connection_config: &ConnectionConfig) -> Result<quinn::Client
     let mut transport_config = TransportConfig::default();
 
     // TODO: Investigate whether there could be a better solution
+    // There is - the auth module
     transport_config.max_idle_timeout(None);
-    transport_config.initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
+    transport_config.initial_max_udp_payload_size(config.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
 
     quinn_config.transport_config(Arc::new(transport_config));
 
@@ -73,26 +72,26 @@ fn create_quinn_endpoint(connection_config: &ConnectionConfig) -> Result<Endpoin
     Ok(endpoint)
 }
 
-pub async fn run_client(config: Config) -> Result<()> {
-    let client_config = config
-        .client
-        .ok_or_else(|| anyhow!("Config is validated and contains the client configuration."))?;
-    info!("Connecting to: {:?}", client_config.connection_address);
+pub async fn run_client(config: ClientConfig) -> Result<()> {
+    info!(
+        "Connecting to: {:?}",
+        config.connection_address
+    );
 
-    let quinn_config = configure_quinn(&config.connection)?;
+    let quinn_config = configure_quinn(&config)?;
     let endpoint = create_quinn_endpoint(&config.connection)?;
 
     let connection = endpoint
         .connect_with(
             quinn_config,
-            SocketAddr::from_str(&client_config.connection_address)?,
+            SocketAddr::from_str(&config.connection_address)?,
             "localhost",
         )?
         .await?;
 
     info!(
         "Connection established: {:?}",
-        client_config.connection_address
+        config.connection_address
     );
 
     let mut address_stream = connection.accept_uni().await?;

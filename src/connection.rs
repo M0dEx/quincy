@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
+use delegate::delegate;
 use quinn::Connection;
+use quinn::SendDatagramError;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::UnboundedSender;
@@ -35,7 +38,7 @@ impl QuincyConnection {
                 connection.remote_address()
             );
 
-            tun_queue.send(data.into())?;
+            tun_queue.send(data)?;
         }
     }
 
@@ -54,8 +57,12 @@ impl QuincyConnection {
         Ok(())
     }
 
-    pub fn get_connection(&self) -> &Arc<Connection> {
-        &self.connection
+    delegate! {
+        to self.connection {
+            pub fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError>;
+            pub fn max_datagram_size(&self) -> Option<usize>;
+            pub fn remote_address(&self) -> SocketAddr;
+        }
     }
 }
 

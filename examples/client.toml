@@ -1,0 +1,12 @@
+connection_address = "192.168.20.20:55555"
+
+[authentication]
+username = "username"
+password = "password"
+trusted_certificates = ["examples/ca.pem"]
+
+[connection]
+mtu = 1400
+
+[log]
+level = "debug"
