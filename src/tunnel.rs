@@ -13,6 +13,7 @@ use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
 use quinn::{Connection, Endpoint, TransportConfig};
+use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
@@ -175,7 +176,7 @@ impl QuincyTunnel {
     fn get_next_free_client_ip(&self) -> Result<Ipv4Addr> {
         // TODO: Take from a pool of available addresses
         let mut server_ip_bytes = self.tun_config.address_server.octets();
-        server_ip_bytes[3] += 1_u8;
+        server_ip_bytes[3] = random();
 
         Ok(Ipv4Addr::from(server_ip_bytes))
     }
@@ -256,6 +257,7 @@ impl QuincyTunnel {
         debug!("Started outgoing tunnel worker");
         while let Some(buf) = write_queue_receiver.recv().await {
             tun_write.write_all(&buf).await?;
+            debug!("Sent {} bytes to tunnel", buf.len())
         }
 
         Ok(())

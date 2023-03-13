@@ -85,7 +85,8 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
         .connect_with(
             quinn_config,
             SocketAddr::from_str(&config.connection_address)?,
-            "localhost",
+            // TODO: Un-hardcode hostname
+            "quincy",
         )?
         .await?;
 
@@ -103,7 +104,7 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
     let tun = TunBuilder::new()
         .name("")
         .tap(false)
-        .packet_info(true)
+        .packet_info(false)
         .mtu(config.connection.mtu as i32)
         .up()
         .address(ip)
