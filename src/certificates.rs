@@ -15,7 +15,7 @@ pub fn load_certificates_from_file(path: &Path) -> Result<Vec<Certificate>> {
 }
 
 pub fn load_private_key_from_file(path: &Path) -> Result<PrivateKey> {
-    let file = File::open(&path)?;
+    let file = File::open(path)?;
     let mut reader = BufReader::new(file);
 
     let private_key_bytes = rustls_pemfile::pkcs8_private_keys(&mut reader)?

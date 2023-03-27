@@ -1,18 +1,19 @@
+use crate::certificates::load_certificates_from_file;
 use crate::config::{ClientConfig, ConnectionConfig};
 use crate::connection::relay_packets;
+use crate::constants::{
+    QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+};
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Endpoint, TransportConfig};
+use rustls::{Certificate, RootCertStore};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio_tun::TunBuilder;
 use tracing::{debug, error, info};
-use rustls::{Certificate, RootCertStore};
-use crate::certificates::load_certificates_from_file;
-use crate::constants::{QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS};
-
 
 fn configure_quinn(config: &ClientConfig) -> Result<quinn::ClientConfig> {
     let trusted_certificates: Vec<Certificate> = config
@@ -73,10 +74,7 @@ fn create_quinn_endpoint(connection_config: &ConnectionConfig) -> Result<Endpoin
 }
 
 pub async fn run_client(config: ClientConfig) -> Result<()> {
-    info!(
-        "Connecting to: {:?}",
-        config.connection_address
-    );
+    info!("Connecting to: {:?}", config.connection_address);
 
     let quinn_config = configure_quinn(&config)?;
     let endpoint = create_quinn_endpoint(&config.connection)?;
@@ -90,10 +88,7 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
         )?
         .await?;
 
-    info!(
-        "Connection established: {:?}",
-        config.connection_address
-    );
+    info!("Connection established: {:?}", config.connection_address);
 
     let mut address_stream = connection.accept_uni().await?;
     let ip = Ipv4Addr::from(address_stream.read_u32().await?);

@@ -52,7 +52,7 @@ impl QuincyTunnel {
             .netmask(tunnel_config.address_mask)
             .try_build()
             .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
-        
+
         let buffer_size = connection_config.mtu as i32;
         let (tun_read, tun_write) = tokio::io::split(tun_interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -128,8 +128,11 @@ impl QuincyTunnel {
     async fn quinn_configuration(&self) -> Result<quinn::ServerConfig> {
         let certificate_file_path = self.tun_config.certificate_file.clone();
         let certificate_key_path = self.tun_config.certificate_key_file.clone();
-        let key = task::spawn_blocking(move || load_private_key_from_file(&certificate_key_path)).await??;
-        let certs = task::spawn_blocking(move || load_certificates_from_file(&certificate_file_path)).await??;
+        let key = task::spawn_blocking(move || load_private_key_from_file(&certificate_key_path))
+            .await??;
+        let certs =
+            task::spawn_blocking(move || load_certificates_from_file(&certificate_file_path))
+                .await??;
 
         let mut rustls_config = rustls::ServerConfig::builder()
             .with_cipher_suites(QUINCY_CIPHER_SUITES)
@@ -203,7 +206,7 @@ impl QuincyTunnel {
                 Ok(headers) => headers,
                 Err(e) => {
                     warn!("Failed to parse IP packet: {e}");
-                    continue
+                    continue;
                 }
             };
             debug!("Packet header: {:?}", headers);
@@ -211,8 +214,8 @@ impl QuincyTunnel {
                 Some(ip_header) => ip_header,
                 None => {
                     warn!("Received a packet with invalid IP header");
-                    continue
-                },
+                    continue;
+                }
             };
 
             let dest_addr: IpAddr = match ip_header {

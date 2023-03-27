@@ -1,14 +1,14 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use anyhow::Result;
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use serde::de::DeserializeOwned;
 use tracing::warn;
 
 #[derive(Debug, Copy, Clone)]
@@ -48,6 +48,7 @@ pub struct TunnelConfig {
     pub bind_port: u16,
     pub address_server: Ipv4Addr,
     pub address_mask: Ipv4Addr,
+    pub users_file: PathBuf,
 }
 
 //
@@ -105,7 +106,7 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
             .merge(Toml::file(path))
             .merge(Env::prefixed(env_prefix));
 
-        Ok(T::init(figment, env_prefix)?)
+        T::init(figment, env_prefix)
     }
 }
 
@@ -119,21 +120,24 @@ impl ConfigInit<ServerConfig> for ServerConfig {
                     tunnel_path
                         .read_dir()?
                         .flatten()
-                        .filter_map(
-                            |config_file| Some(TunnelConfig::from_path(&config_file.path(), env_prefix).ok()?))
+                        .filter_map(|config_file| {
+                            TunnelConfig::from_path(&config_file.path(), env_prefix).ok()
+                        })
                         .collect()
                 } else {
                     warn!("Failed to load tunnel configuration files from '{tunnel_path:?}' - the folder does not exist");
                     vec![]
                 }
-            },
-            None => vec![]
+            }
+            None => vec![],
         };
-        
+
         for tunnel in tunnel_configs {
             match config.tunnels.entry(tunnel.name.clone()) {
                 Entry::Occupied(_) => warn!("Tunnel with the name {} already exists", tunnel.name),
-                Entry::Vacant(slot) => {slot.insert(tunnel);},
+                Entry::Vacant(slot) => {
+                    slot.insert(tunnel);
+                }
             }
         }
 

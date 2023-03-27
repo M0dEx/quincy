@@ -1,3 +1,4 @@
+mod auth;
 mod certificates;
 mod client;
 mod config;
@@ -36,13 +37,13 @@ async fn main() -> Result<()> {
         Mode::Client => {
             let config = ClientConfig::from_path(&args.config_path, &args.env_prefix)?;
             enable_tracing(&config.log.level);
-            
+
             run_client(config).await
-        },
+        }
         Mode::Server => {
             let config = ServerConfig::from_path(&args.config_path, &args.env_prefix)?;
             enable_tracing(&config.log.level);
-            
+
             let mut server = QuincyServer::new(config).await?;
             server.run().await
         }
