@@ -31,11 +31,16 @@ rustls-pemfile = "^1.0"
 rcgen = "^0.10"
 webpki = "^0.22"
 
+# Authentication
+argon2 = "^0.5"
+
 # Tracing/Logging
 tracing = "^0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utils
+chrono = "^0.4"
+getset = "^0.1"
 anyhow = "^1.0"
 rand = "^0.8"
 delegate = "^0.9"

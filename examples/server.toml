@@ -4,6 +4,7 @@ certificate_file = "examples/cert/server_cert.pem"
 certificate_key_file = "examples/cert/server_key.pem"
 address_server = "10.0.0.1"
 address_mask = "255.255.255.0"
+users_file = "examples/users"
 
 [connection]
 mtu = 1400
