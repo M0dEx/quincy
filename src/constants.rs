@@ -1,4 +1,9 @@
 use once_cell::sync::Lazy;
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha20Rng;
+use tokio::sync::Mutex;
+
+pub static CPRNG: Lazy<Mutex<ChaCha20Rng>> = Lazy::new(|| Mutex::new(ChaCha20Rng::from_entropy()));
 
 pub static QUINCY_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
     rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,

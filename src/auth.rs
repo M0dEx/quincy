@@ -1,29 +1,28 @@
-pub mod token;
 pub mod user;
 
-use crate::auth::token::SessionToken;
 use crate::auth::user::User;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use bytes::Bytes;
 use dashmap::DashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub struct Auth<'a> {
+pub struct Auth {
     users: DashMap<String, User>,
-    hasher: Argon2<'a>,
+    hasher: Argon2<'static>,
 }
 
-impl<'a> Auth<'a> {
-    pub fn new(users_file: PathBuf) -> Result<Self> {
+impl Auth {
+    pub fn new(users_file: &Path) -> Result<Self> {
         Ok(Self {
             users: Auth::load_users_file(users_file)?,
             hasher: Argon2::default(),
         })
     }
 
-    pub fn verify_credentials(&self, username: String, password: String) -> Result<&SessionToken> {
+    pub async fn verify_credentials(&self, username: String, password: String) -> Result<Bytes> {
         let user = self
             .users
             .get(&username)
@@ -36,11 +35,11 @@ impl<'a> Auth<'a> {
             .verify_password(password.as_bytes(), &password_hash)
             .map_err(|err| anyhow!("Could not verify credentials for user '{username}': {err}"))?;
 
-        todo!("Generate session token")
+        Ok(user.new_session().await)
     }
 
-    fn load_users_file(users_file: PathBuf) -> Result<DashMap<String, User>> {
-        let file = File::open(&users_file)?;
+    fn load_users_file(users_file: &Path) -> Result<DashMap<String, User>> {
+        let file = File::open(users_file)?;
         let lines = BufReader::new(file).lines();
 
         let result: DashMap<String, User> = DashMap::new();

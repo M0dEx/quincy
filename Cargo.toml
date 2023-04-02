@@ -33,16 +33,16 @@ webpki = "^0.22"
 
 # Authentication
 argon2 = "^0.5"
+rand_chacha = "^0.3"
 
 # Tracing/Logging
 tracing = "^0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utils
-chrono = "^0.4"
+chrono = { version = "^0.4", features = ["clock"] }
 getset = "^0.1"
 anyhow = "^1.0"
-rand = "^0.8"
 delegate = "^0.9"
 clap = { version = "^4.1", features = ["derive"] }
 once_cell = "^1.17"
