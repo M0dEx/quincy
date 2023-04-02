@@ -1,3 +1,4 @@
+mod address_pool;
 mod auth;
 mod certificates;
 mod client;

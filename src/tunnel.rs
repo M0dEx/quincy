@@ -1,6 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
+use crate::address_pool::AddressPool;
+use crate::auth::Auth;
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::config::{ConnectionConfig, TunnelConfig};
 use crate::connection::QuincyConnection;
@@ -13,7 +15,6 @@ use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
 use quinn::{Connection, Endpoint, TransportConfig};
-use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
@@ -38,6 +39,8 @@ pub struct QuincyTunnel {
     buffer_size: usize,
     reader_task: Option<JoinHandle<Result<()>>>,
     writer_task: Option<JoinHandle<Result<()>>>,
+    auth: Auth,
+    address_pool: AddressPool,
 }
 
 impl QuincyTunnel {
@@ -56,6 +59,9 @@ impl QuincyTunnel {
         let buffer_size = connection_config.mtu as i32;
         let (tun_read, tun_write) = tokio::io::split(tun_interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let auth = Auth::new(&tunnel_config.users_file)?;
+        let address_pool =
+            AddressPool::new(tunnel_config.address_server, tunnel_config.address_mask)?;
 
         Ok(Self {
             tun_config: tunnel_config,
@@ -68,6 +74,8 @@ impl QuincyTunnel {
             buffer_size: buffer_size as usize,
             reader_task: None,
             writer_task: None,
+            auth,
+            address_pool,
         })
     }
 
@@ -105,7 +113,10 @@ impl QuincyTunnel {
         );
         let mut address_stream = connection.open_uni().await?;
 
-        let client_tun_ip = self.get_next_free_client_ip()?;
+        let client_tun_ip = self
+            .address_pool
+            .next_available_address()
+            .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
 
         // TODO: Move into auth module
         address_stream.write_u32(client_tun_ip.into()).await?;
@@ -174,14 +185,6 @@ impl QuincyTunnel {
         )?;
 
         Ok(endpoint)
-    }
-
-    fn get_next_free_client_ip(&self) -> Result<Ipv4Addr> {
-        // TODO: Take from a pool of available addresses
-        let mut server_ip_bytes = self.tun_config.address_server.octets();
-        server_ip_bytes[3] = random();
-
-        Ok(Ipv4Addr::from(server_ip_bytes))
     }
 
     async fn process_incoming_data(

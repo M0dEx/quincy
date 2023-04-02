@@ -14,6 +14,7 @@ tokio-tun = "^0.7"
 socket2 = "^0.5"
 bytes = "^1.4"
 etherparse = "^0.13"
+ipnet = "^2.7"
 
 # Tokio and futures
 tokio = { version = "^1.25", features = ["rt-multi-thread", "macros", "sync", "io-util", "fs"] }
