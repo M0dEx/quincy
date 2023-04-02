@@ -11,7 +11,7 @@ quinn = { version = "^0.9", features = ["runtime-tokio"] }
 
 # Interfaces and networking
 tokio-tun = "^0.7"
-socket2 = "^0.4"
+socket2 = "^0.5"
 bytes = "^1.4"
 etherparse = "^0.13"
 
