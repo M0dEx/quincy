@@ -14,6 +14,7 @@ use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
+use ipnet::Ipv4Net;
 use quinn::{Connection, Endpoint, TransportConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -39,7 +40,7 @@ pub struct QuincyTunnel {
     buffer_size: usize,
     reader_task: Option<JoinHandle<Result<()>>>,
     writer_task: Option<JoinHandle<Result<()>>>,
-    auth: Auth,
+    auth: Arc<Auth>,
     address_pool: AddressPool,
 }
 
@@ -74,7 +75,7 @@ impl QuincyTunnel {
             buffer_size: buffer_size as usize,
             reader_task: None,
             writer_task: None,
-            auth,
+            auth: Arc::new(auth),
             address_pool,
         })
     }
@@ -111,27 +112,23 @@ impl QuincyTunnel {
             "Received incoming connection from {}",
             connection.remote_address().ip()
         );
-        let mut address_stream = connection.open_uni().await?;
 
         let client_tun_ip = self
             .address_pool
             .next_available_address()
             .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
 
-        // TODO: Move into auth module
-        address_stream.write_u32(client_tun_ip.into()).await?;
-        address_stream
-            .write_u32(self.tun_config.address_mask.into())
-            .await?;
-
-        debug!("Sent address information to client {client_tun_ip}");
-
-        let mut connection = QuincyConnection::new(connection, self.write_queue_sender.clone());
+        let mut connection = QuincyConnection::new(
+            connection,
+            self.write_queue_sender.clone(),
+            self.auth.clone(),
+            client_tun_ip,
+        );
         connection.start_worker()?;
         debug!("Started connection worker for client {client_tun_ip}");
 
         self.active_connections
-            .insert(IpAddr::V4(client_tun_ip), connection);
+            .insert(IpAddr::V4(client_tun_ip.addr()), connection);
 
         Ok(())
     }

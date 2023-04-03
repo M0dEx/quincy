@@ -3,11 +3,31 @@ pub mod user;
 use crate::auth::user::User;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use bincode::{Decode, Encode};
 use bytes::Bytes;
 use dashmap::DashMap;
+use ipnet::Ipv4Net;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+pub enum AuthState {
+    Unauthenticated,
+    Authenticated(String),
+    Failed,
+}
+
+#[derive(Encode, Decode)]
+pub enum AuthClientMessage {
+    Authentication(String, String),
+    SessionToken(Vec<u8>),
+}
+
+#[derive(Encode, Decode)]
+pub enum AuthServerMessage {
+    Authenticated(u32, u32, Vec<u8>),
+    Ok,
+}
 
 pub struct Auth {
     users: DashMap<String, User>,
@@ -22,7 +42,7 @@ impl Auth {
         })
     }
 
-    pub async fn verify_credentials(&self, username: String, password: String) -> Result<Bytes> {
+    pub async fn authenticate(&self, username: String, password: String) -> Result<Bytes> {
         let user = self
             .users
             .get(&username)
@@ -36,6 +56,15 @@ impl Auth {
             .map_err(|err| anyhow!("Could not verify credentials for user '{username}': {err}"))?;
 
         Ok(user.new_session().await)
+    }
+
+    pub fn verify_session_token(&self, username: &str, session_token: Bytes) -> Result<bool> {
+        let user = self
+            .users
+            .get(username)
+            .ok_or_else(|| anyhow!("Unknown user: {username}"))?;
+
+        Ok(user.check_session_validity(session_token))
     }
 
     fn load_users_file(users_file: &Path) -> Result<DashMap<String, User>> {

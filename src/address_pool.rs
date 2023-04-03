@@ -26,15 +26,15 @@ impl AddressPool {
     }
 
     /// Returns the next available address if such an address exists.
-    pub fn next_available_address(&self) -> Option<Ipv4Addr> {
-        let range = Ipv4AddrRange::new(self.network.network(), self.network.broadcast());
+    pub fn next_available_address(&self) -> Option<Ipv4Net> {
+        let mut range = Ipv4AddrRange::new(self.network.network(), self.network.broadcast());
 
         range
-            .filter(|address| !self.used_addresses.contains(address))
-            .next()
+            .find(|address| !self.used_addresses.contains(address))
             .map(|address| {
                 self.used_addresses.insert(address);
-                address
+                Ipv4Net::with_netmask(address, self.network.netmask())
+                    .expect("Netmask will always be valid")
             })
     }
 

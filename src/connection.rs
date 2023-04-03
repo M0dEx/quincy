@@ -1,28 +1,48 @@
-use anyhow::{anyhow, Result};
+use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
+use anyhow::{anyhow, Context, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;
+use ipnet::Ipv4Net;
 use quinn::Connection;
 use quinn::SendDatagramError;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tokio_tun::Tun;
 use tracing::debug;
 
+type SharedAuthState = Arc<RwLock<AuthState>>;
+
 pub struct QuincyConnection {
     connection: Arc<Connection>,
+    client_address: Ipv4Net,
+    auth: Arc<Auth>,
+    auth_state: SharedAuthState,
     tun_queue: Arc<UnboundedSender<Bytes>>,
-    worker: Option<JoinHandle<Result<()>>>,
+    authentication_worker: Option<JoinHandle<Result<()>>>,
+    connection_worker: Option<JoinHandle<Result<()>>>,
 }
 
 impl QuincyConnection {
-    pub fn new(connection: Connection, tun_queue: Arc<UnboundedSender<Bytes>>) -> Self {
+    pub fn new(
+        connection: Connection,
+        tun_queue: Arc<UnboundedSender<Bytes>>,
+        auth: Arc<Auth>,
+        client_address: Ipv4Net,
+    ) -> Self {
         Self {
             connection: Arc::new(connection),
+            client_address,
+            auth,
+            auth_state: Arc::new(RwLock::new(AuthState::Unauthenticated)),
             tun_queue,
-            worker: None,
+            authentication_worker: None,
+            connection_worker: None,
         }
     }
 
@@ -42,16 +62,78 @@ impl QuincyConnection {
         }
     }
 
+    async fn process_authentication_stream(
+        connection: Arc<Connection>,
+        auth: Arc<Auth>,
+        auth_state: SharedAuthState,
+        client_address: Ipv4Net,
+    ) -> Result<()> {
+        let (mut auth_stream_send, mut auth_stream_recv) = connection.open_bi().await?;
+        // TODO: Make this configurable
+        let auth_interval = Duration::from_secs(120);
+
+        let mut buf = BytesMut::with_capacity(2048);
+
+        loop {
+            match timeout(auth_interval, auth_stream_recv.read_buf(&mut buf)).await {
+                Ok(_) => {}
+                Err(_) => *auth_state.write().await = AuthState::Failed,
+            }
+
+            let (message, _): (AuthClientMessage, usize) =
+                bincode::decode_from_slice(&buf, bincode::config::standard())?;
+
+            match (&*auth_state.read().await, message) {
+                (AuthState::Authenticated(username), AuthClientMessage::SessionToken(token)) => {
+                    if auth.verify_session_token(username, token.into())? {
+                        let mut message_buf = BytesMut::with_capacity(4);
+                        bincode::encode_into_slice(
+                            AuthServerMessage::Ok,
+                            &mut message_buf,
+                            bincode::config::standard(),
+                        )?;
+
+                        auth_stream_send.write_all(&message_buf).await?
+                    }
+                }
+                (
+                    AuthState::Unauthenticated,
+                    AuthClientMessage::Authentication(username, password),
+                ) => {
+                    let session_token = auth.authenticate(username, password).await?;
+                    let mut message_buf = BytesMut::with_capacity(128);
+                    bincode::encode_into_slice(
+                        AuthServerMessage::Authenticated(
+                            client_address.addr().into(),
+                            client_address.netmask().into(),
+                            session_token.into(),
+                        ),
+                        &mut message_buf,
+                        bincode::config::standard(),
+                    )?;
+
+                    auth_stream_send.write_all(&message_buf).await?
+                }
+                _ => todo!("Close connection"),
+            }
+        }
+    }
+
     pub fn start_worker(&mut self) -> Result<()> {
-        if self.worker.is_some() {
+        if self.connection_worker.is_some() {
             return Err(anyhow!("There is already a worker active"));
         }
 
-        let connection = self.connection.clone();
-        let tun_queue = self.tun_queue.clone();
+        self.authentication_worker = Some(tokio::spawn(Self::process_authentication_stream(
+            self.connection.clone(),
+            self.auth.clone(),
+            self.auth_state.clone(),
+            self.client_address,
+        )));
 
-        self.worker = Some(tokio::spawn(Self::process_incoming_data(
-            connection, tun_queue,
+        self.connection_worker = Some(tokio::spawn(Self::process_incoming_data(
+            self.connection.clone(),
+            self.tun_queue.clone(),
         )));
 
         Ok(())
