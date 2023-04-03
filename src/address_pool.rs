@@ -17,7 +17,7 @@ impl AddressPool {
     /// - `address_mask` - the mask defining the subnet contained by this pool
     pub fn new(address_server: Ipv4Addr, address_mask: Ipv4Addr) -> Result<Self> {
         let network = Ipv4Net::with_netmask(address_server, address_mask)?;
-        let used = DashSet::from_iter(vec![network.network(), network.broadcast()]);
+        let used = DashSet::from_iter(vec![network.network(), network.addr(), network.broadcast()]);
 
         Ok(Self {
             network,
