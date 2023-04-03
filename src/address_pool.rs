@@ -50,6 +50,7 @@ impl AddressPool {
 #[cfg(test)]
 mod tests {
     use crate::address_pool::AddressPool;
+    use ipnet::Ipv4Net;
     use std::net::Ipv4Addr;
 
     #[test]
@@ -62,13 +63,21 @@ mod tests {
 
         assert_eq!(
             pool.next_available_address().unwrap(),
-            Ipv4Addr::new(10, 0, 0, 2)
+            Ipv4Net::with_netmask(
+                Ipv4Addr::new(10, 0, 0, 2),
+                Ipv4Addr::new(255, 255, 255, 252)
+            )
+            .unwrap()
         );
         assert_eq!(pool.next_available_address(), None);
         pool.release_address(Ipv4Addr::new(10, 0, 0, 2));
         assert_eq!(
             pool.next_available_address().unwrap(),
-            Ipv4Addr::new(10, 0, 0, 2)
+            Ipv4Net::with_netmask(
+                Ipv4Addr::new(10, 0, 0, 2),
+                Ipv4Addr::new(255, 255, 255, 252)
+            )
+            .unwrap()
         );
     }
 }
