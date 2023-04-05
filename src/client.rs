@@ -1,18 +1,18 @@
 use crate::certificates::load_certificates_from_file;
 use crate::config::{ClientConfig, ConnectionConfig};
-use crate::connection::relay_packets;
 use crate::constants::{
     QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
-use quinn::{Endpoint, TransportConfig};
+use bytes::BytesMut;
+use quinn::{Connection, Endpoint, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
-use tokio_tun::TunBuilder;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, error, info};
 
 fn configure_quinn(config: &ClientConfig) -> Result<quinn::ClientConfig> {
@@ -112,4 +112,61 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
     relay_packets(Arc::new(connection), tun, config.connection.mtu as usize).await?;
 
     Ok(())
+}
+
+pub async fn relay_packets(connection: Arc<Connection>, interface: Tun, mtu: usize) -> Result<()> {
+    let (read, write) = tokio::io::split(interface);
+
+    let (_, _) = tokio::try_join!(
+        tokio::spawn(handle_send(connection.clone(), read, mtu)),
+        tokio::spawn(handle_recv(connection.clone(), write))
+    )?;
+
+    Ok(())
+}
+
+async fn handle_send(
+    connection: Arc<Connection>,
+    mut read_interface: ReadHalf<Tun>,
+    interface_mtu: usize,
+) -> Result<()> {
+    debug!("Started send task");
+    loop {
+        let buf_size = connection.max_datagram_size().ok_or_else(|| {
+            anyhow!("The other side of the connection is refusing to provide a max datagram size")
+        })?;
+
+        if interface_mtu > buf_size {
+            return Err(anyhow!(
+                "Interface MTU ({interface_mtu}) is higher than QUIC connection MTU ({buf_size})"
+            ));
+        }
+
+        let mut buf = BytesMut::with_capacity(buf_size);
+        read_interface.read_buf(&mut buf).await?;
+        debug!(
+            "Sending {} bytes to {:?}",
+            buf.len(),
+            connection.remote_address()
+        );
+
+        connection.send_datagram(buf.into())?;
+    }
+}
+
+async fn handle_recv(
+    connection: Arc<Connection>,
+    mut write_interface: WriteHalf<Tun>,
+) -> Result<()> {
+    debug!("Started recv task");
+    loop {
+        let data = connection.read_datagram().await?;
+        debug!(
+            "Received {} bytes from {:?}",
+            data.len(),
+            connection.remote_address()
+        );
+
+        write_interface.write_all(&data).await?;
+    }
 }

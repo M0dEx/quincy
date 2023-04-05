@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
 use tracing::warn;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::EnvFilter;
 
 pub fn bind_socket(
     addr: SocketAddr,
@@ -42,4 +44,13 @@ pub fn bind_socket(
     }
 
     Ok(socket.into())
+}
+
+pub fn enable_tracing(log_level: &str) {
+    let registry = tracing_subscriber::Registry::default();
+    let fmt_layer = tracing_subscriber::fmt::Layer::new();
+    let filter_layer = EnvFilter::try_new(log_level).unwrap();
+
+    let subscriber = registry.with(filter_layer).with(fmt_layer);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }

@@ -49,7 +49,7 @@ impl AddressPool {
 
 #[cfg(test)]
 mod tests {
-    use crate::address_pool::AddressPool;
+    use crate::server::address_pool::AddressPool;
     use ipnet::Ipv4Net;
     use std::net::Ipv4Addr;
 

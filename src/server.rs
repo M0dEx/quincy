@@ -1,12 +1,16 @@
-use crate::tunnel::QuincyTunnel;
 use std::sync::Arc;
 
 use crate::config::ServerConfig;
+use crate::server::tunnel::QuincyTunnel;
 use anyhow::Result;
 use dashmap::DashMap;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use tokio::sync::RwLock;
+
+pub mod address_pool;
+pub mod connection;
+pub mod tunnel;
 
 pub struct QuincyServer {
     active_tunnels: DashMap<String, Arc<RwLock<QuincyTunnel>>>,

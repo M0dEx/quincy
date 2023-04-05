@@ -1,20 +1,19 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
-use crate::address_pool::AddressPool;
 use crate::auth::Auth;
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::config::{ConnectionConfig, TunnelConfig};
-use crate::connection::QuincyConnection;
 use crate::constants::{
     QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
+use crate::server::address_pool::AddressPool;
+use crate::server::connection::QuincyConnection;
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
-use ipnet::Ipv4Net;
 use quinn::{Connection, Endpoint, TransportConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

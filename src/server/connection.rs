@@ -1,5 +1,5 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;
 use ipnet::Ipv4Net;
@@ -8,12 +8,11 @@ use quinn::SendDatagramError;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
-use tokio_tun::Tun;
 use tracing::debug;
 
 type SharedAuthState = Arc<RwLock<AuthState>>;
@@ -100,7 +99,7 @@ impl QuincyConnection {
                     AuthState::Unauthenticated,
                     AuthClientMessage::Authentication(username, password),
                 ) => {
-                    let session_token = auth.authenticate(username, password).await?;
+                    let session_token = auth.authenticate(&username, password).await?;
                     let mut message_buf = BytesMut::with_capacity(128);
                     bincode::encode_into_slice(
                         AuthServerMessage::Authenticated(
@@ -145,62 +144,5 @@ impl QuincyConnection {
             pub fn max_datagram_size(&self) -> Option<usize>;
             pub fn remote_address(&self) -> SocketAddr;
         }
-    }
-}
-
-pub async fn relay_packets(connection: Arc<Connection>, interface: Tun, mtu: usize) -> Result<()> {
-    let (read, write) = tokio::io::split(interface);
-
-    let (_, _) = tokio::try_join!(
-        tokio::spawn(handle_send(connection.clone(), read, mtu)),
-        tokio::spawn(handle_recv(connection.clone(), write))
-    )?;
-
-    Ok(())
-}
-
-async fn handle_send(
-    connection: Arc<Connection>,
-    mut read_interface: ReadHalf<Tun>,
-    interface_mtu: usize,
-) -> Result<()> {
-    debug!("Started send task");
-    loop {
-        let buf_size = connection.max_datagram_size().ok_or_else(|| {
-            anyhow!("The other side of the connection is refusing to provide a max datagram size")
-        })?;
-
-        if interface_mtu > buf_size {
-            return Err(anyhow!(
-                "Interface MTU ({interface_mtu}) is higher than QUIC connection MTU ({buf_size})"
-            ));
-        }
-
-        let mut buf = BytesMut::with_capacity(buf_size);
-        read_interface.read_buf(&mut buf).await?;
-        debug!(
-            "Sending {} bytes to {:?}",
-            buf.len(),
-            connection.remote_address()
-        );
-
-        connection.send_datagram(buf.into())?;
-    }
-}
-
-async fn handle_recv(
-    connection: Arc<Connection>,
-    mut write_interface: WriteHalf<Tun>,
-) -> Result<()> {
-    debug!("Started recv task");
-    loop {
-        let data = connection.read_datagram().await?;
-        debug!(
-            "Received {} bytes from {:?}",
-            data.len(),
-            connection.remote_address()
-        );
-
-        write_interface.write_all(&data).await?;
     }
 }
