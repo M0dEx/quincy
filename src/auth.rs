@@ -111,3 +111,35 @@ impl Auth {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::auth::user::User;
+    use crate::auth::Auth;
+    use argon2::password_hash::rand_core::OsRng;
+    use argon2::password_hash::SaltString;
+    use argon2::{Argon2, PasswordHasher};
+    use dashmap::DashMap;
+
+    #[test]
+    fn test_authentication() {
+        let users: DashMap<String, User> = DashMap::new();
+
+        let argon = Argon2::default();
+        let username = "test".to_owned();
+        let password = "password".to_owned();
+        let salt = SaltString::generate(&mut OsRng);
+
+        let password_hash = argon.hash_password(password.as_bytes(), &salt).unwrap();
+
+        let test_user = User::new(username.clone(), password_hash.to_string());
+        users.insert(username.clone(), test_user);
+
+        let auth = Auth::new(users);
+        let session_token = tokio_test::block_on(auth.authenticate(&username, password))
+            .expect("Credentials are valid");
+        assert!(auth
+            .verify_session_token(&username, session_token)
+            .expect("User exists"))
+    }
+}
