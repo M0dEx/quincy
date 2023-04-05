@@ -1,4 +1,5 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
+use crate::utils::encode_message;
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;
@@ -85,14 +86,8 @@ impl QuincyConnection {
             match (&*auth_state.read().await, message) {
                 (AuthState::Authenticated(username), AuthClientMessage::SessionToken(token)) => {
                     if auth.verify_session_token(username, token.into())? {
-                        let mut message_buf = BytesMut::with_capacity(4);
-                        bincode::encode_into_slice(
-                            AuthServerMessage::Ok,
-                            &mut message_buf,
-                            bincode::config::standard(),
-                        )?;
-
-                        auth_stream_send.write_all(&message_buf).await?
+                        let data = encode_message(AuthServerMessage::Ok)?;
+                        auth_stream_send.write_all(&data).await?
                     }
                 }
                 (
@@ -100,18 +95,14 @@ impl QuincyConnection {
                     AuthClientMessage::Authentication(username, password),
                 ) => {
                     let session_token = auth.authenticate(&username, password).await?;
-                    let mut message_buf = BytesMut::with_capacity(128);
-                    bincode::encode_into_slice(
-                        AuthServerMessage::Authenticated(
-                            client_address.addr().into(),
-                            client_address.netmask().into(),
-                            session_token.into(),
-                        ),
-                        &mut message_buf,
-                        bincode::config::standard(),
-                    )?;
+                    let response = AuthServerMessage::Authenticated(
+                        client_address.addr().into(),
+                        client_address.netmask().into(),
+                        session_token.into(),
+                    );
 
-                    auth_stream_send.write_all(&message_buf).await?
+                    let data = encode_message(response)?;
+                    auth_stream_send.write_all(&data).await?
                 }
                 _ => todo!("Close connection"),
             }
