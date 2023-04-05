@@ -6,24 +6,37 @@ use dashmap::DashMap;
 use getset::Getters;
 use rand_chacha::rand_core::RngCore;
 
+/// Represents a Quincy user
 #[derive(Getters)]
 pub struct User {
     #[get = "pub"]
-    name: String,
+    username: String,
     #[get = "pub"]
-    password_hash_string: String,
+    password_hash: String,
     session_tokens: DashMap<Bytes, DateTime<Utc>>,
 }
 
 impl User {
-    pub fn new(name: String, password_hash_string: String) -> Self {
+    /// Creates a new `User` instance given the username and password hash.
+    ///
+    /// ### Arguments
+    /// - `username` - the username
+    /// - `password_hash` - a password hash representing the user's password
+    pub fn new(username: String, password_hash: String) -> Self {
         Self {
-            name,
-            password_hash_string,
+            username,
+            password_hash,
             session_tokens: DashMap::new(),
         }
     }
 
+    /// Checks whether a given session token is valid for this user.
+    ///
+    /// ### Arguments
+    /// - `session_token` - a session token
+    ///
+    /// ### Returns
+    /// - `true` if the session token is valid, `false` otherwise
     pub fn check_session_validity(&self, session_token: Bytes) -> bool {
         let valid = match self.session_tokens.get(&session_token) {
             Some(token) => &Utc::now() <= token.value(),
@@ -37,6 +50,10 @@ impl User {
         valid
     }
 
+    /// Creates a new session for this users and returns the created session token.
+    ///
+    /// ### Returns
+    /// `Bytes` containing the session token
     pub async fn new_session(&self) -> Bytes {
         let mut buf = BytesMut::with_capacity(32);
 

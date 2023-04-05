@@ -60,7 +60,7 @@ impl QuincyTunnel {
         let buffer_size = connection_config.mtu as i32;
         let (tun_read, tun_write) = tokio::io::split(tun_interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let auth = Auth::new(&tunnel_config.users_file)?;
+        let auth = Auth::new(Auth::load_users_file(&tunnel_config.users_file)?);
         let address_pool =
             AddressPool::new(tunnel_config.address_server, tunnel_config.address_mask)?;
 
