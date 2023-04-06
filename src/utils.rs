@@ -1,7 +1,7 @@
-use crate::constants::{BINCODE_BUFFER_SIZE, BINCODE_CONFIG};
+use crate::constants::BINCODE_CONFIG;
 use anyhow::{Context, Result};
 use bincode::{Decode, Encode};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
 use tracing::warn;
@@ -59,11 +59,9 @@ pub fn enable_tracing(log_level: &str) {
 }
 
 pub fn encode_message<M: Encode>(message: M) -> Result<Bytes> {
-    let mut message_buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
+    let bytes = bincode::encode_to_vec(message, *BINCODE_CONFIG)?;
 
-    bincode::encode_into_slice(message, &mut message_buf, *BINCODE_CONFIG)?;
-
-    Ok(message_buf.into())
+    Ok(bytes.into())
 }
 
 pub fn decode_message<M: Decode>(data: Bytes) -> Result<M> {
