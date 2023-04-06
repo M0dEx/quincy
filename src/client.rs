@@ -1,17 +1,22 @@
+use crate::auth::{AuthClientMessage, AuthServerMessage};
 use crate::certificates::load_certificates_from_file;
 use crate::config::{ClientConfig, ConnectionConfig};
 use crate::constants::{
-    QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+    BINCODE_BUFFER_SIZE, QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS,
+    TLS_PROTOCOL_VERSIONS,
 };
-use crate::utils::bind_socket;
+use crate::utils::{bind_socket, decode_message, encode_message};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use quinn::{Connection, Endpoint, TransportConfig};
+use ipnet::Ipv4Net;
+use quinn::{Connection, Endpoint, RecvStream, SendStream, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::time::sleep;
 use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, error, info};
 
@@ -90,11 +95,12 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
 
     info!("Connection established: {:?}", config.connection_address);
 
-    let mut address_stream = connection.accept_uni().await?;
-    let ip = Ipv4Addr::from(address_stream.read_u32().await?);
-    let mask = Ipv4Addr::from(address_stream.read_u32().await?);
+    let (mut auth_send, mut auth_receive) = connection.accept_bi().await?;
+    let (address, session_token) = authenticate(&config, &mut auth_send, &mut auth_receive).await?;
 
-    debug!("Received TUN IP address {} with mask {}", ip, mask,);
+    let session_task = tokio::spawn(manage_session(auth_send, auth_receive, session_token));
+
+    debug!("Received TUN IP address {address}");
 
     let tun = TunBuilder::new()
         .name("")
@@ -102,19 +108,75 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
         .packet_info(false)
         .mtu(config.connection.mtu as i32)
         .up()
-        .address(ip)
-        .netmask(mask)
+        .address(address.addr())
+        .netmask(address.netmask())
         .try_build()
         .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
 
     debug!("Created a TUN interface");
 
     relay_packets(Arc::new(connection), tun, config.connection.mtu as usize).await?;
+    session_task.await??;
 
     Ok(())
 }
 
-pub async fn relay_packets(connection: Arc<Connection>, interface: Tun, mtu: usize) -> Result<()> {
+async fn authenticate(
+    client_config: &ClientConfig,
+    auth_send: &mut SendStream,
+    auth_recv: &mut RecvStream,
+) -> Result<(Ipv4Net, Vec<u8>)> {
+    let basic_auth = AuthClientMessage::Authentication(
+        client_config.authentication.username.clone(),
+        client_config.authentication.password.clone(),
+    );
+
+    let buf = encode_message(basic_auth)?;
+
+    auth_send.write_all(&buf).await?;
+
+    let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
+    auth_recv.read_buf(&mut buf).await?;
+
+    let auth_response: AuthServerMessage = decode_message(buf.into())?;
+
+    match auth_response {
+        AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => Ok((
+            Ipv4Net::with_netmask(addr_data.into(), netmask_data.into())?,
+            session_token,
+        )),
+        _ => Err(anyhow!("Authentication failed")),
+    }
+}
+
+async fn manage_session(
+    mut auth_send: SendStream,
+    mut auth_recv: RecvStream,
+    session_token: Vec<u8>,
+) -> Result<()> {
+    let auth_interval = Duration::from_secs(100);
+
+    let message = AuthClientMessage::SessionToken(session_token.clone());
+    let buf = encode_message(message)?;
+
+    loop {
+        auth_send.write_all(&buf).await?;
+
+        let mut response_buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
+        auth_recv.read_buf(&mut response_buf).await?;
+
+        let auth_response: AuthServerMessage = decode_message(response_buf.into())?;
+
+        match auth_response {
+            AuthServerMessage::Ok => {}
+            _ => return Err(anyhow!("Session died")),
+        }
+
+        sleep(auth_interval).await;
+    }
+}
+
+async fn relay_packets(connection: Arc<Connection>, interface: Tun, mtu: usize) -> Result<()> {
     let (read, write) = tokio::io::split(interface);
 
     let (_, _) = tokio::try_join!(
