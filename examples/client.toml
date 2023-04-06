@@ -1,8 +1,8 @@
 connection_address = "quincy:55555"
 
 [authentication]
-username = "username"
-password = "password"
+username = "test"
+password = "test"
 trusted_certificates = ["examples/cert/ca_cert.pem"]
 
 [connection]
