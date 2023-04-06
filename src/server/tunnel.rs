@@ -229,6 +229,19 @@ impl QuincyTunnel {
             };
             debug!("Found connection for IP {dest_addr}");
 
+            if !connection.is_ok().await? {
+                warn!("Deactivating stale connection for client: {dest_addr}");
+
+                // Drop the reference to prevent deadlocking
+                drop(connection);
+                let (_, mut connection) = active_connections
+                    .remove(&dest_addr)
+                    .expect("Connection exists");
+
+                connection.stop_workers().await?;
+                continue;
+            }
+
             let max_datagram_size = connection.max_datagram_size().ok_or_else(|| {
                 anyhow!(
                     "Client {} failed to provide maximum datagram size",
