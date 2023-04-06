@@ -149,7 +149,7 @@ impl QuincyConnection {
         auth_state: SharedAuthState,
         client_address: Ipv4Net,
     ) -> Result<()> {
-        let (mut auth_stream_send, mut auth_stream_recv) = connection.open_bi().await?;
+        let (mut auth_stream_send, mut auth_stream_recv) = connection.accept_bi().await?;
         // TODO: Make this configurable
         let auth_interval = Duration::from_secs(120);
 

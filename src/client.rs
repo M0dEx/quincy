@@ -95,7 +95,7 @@ pub async fn run_client(config: ClientConfig) -> Result<()> {
 
     info!("Connection established: {:?}", config.connection_address);
 
-    let (mut auth_send, mut auth_receive) = connection.accept_bi().await?;
+    let (mut auth_send, mut auth_receive) = connection.open_bi().await?;
     let (address, session_token) = authenticate(&config, &mut auth_send, &mut auth_receive).await?;
 
     let session_task = tokio::spawn(manage_session(auth_send, auth_receive, session_token));
