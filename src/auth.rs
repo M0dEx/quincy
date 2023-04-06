@@ -14,6 +14,7 @@ use std::path::Path;
 pub enum AuthState {
     Unauthenticated,
     Authenticated(String),
+    TimedOut,
     Failed,
 }
 

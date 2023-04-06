@@ -72,16 +72,15 @@ impl QuincyConnection {
         // TODO: Make this configurable
         let auth_interval = Duration::from_secs(120);
 
-        let mut buf = BytesMut::with_capacity(2048);
-
         loop {
+            let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
+
             match timeout(auth_interval, auth_stream_recv.read_buf(&mut buf)).await {
                 Ok(_) => {}
-                Err(_) => *auth_state.write().await = AuthState::Failed,
+                Err(_) => *auth_state.write().await = AuthState::TimedOut,
             }
 
-            let (message, _): (AuthClientMessage, usize) =
-                bincode::decode_from_slice(&buf, bincode::config::standard())?;
+            let message: AuthClientMessage = decode_message(buf.into())?;
 
             match (&*auth_state.read().await, message) {
                 (AuthState::Authenticated(username), AuthClientMessage::SessionToken(token)) => {
@@ -102,16 +101,24 @@ impl QuincyConnection {
                     );
 
                     let data = encode_message(response)?;
-                    auth_stream_send.write_all(&data).await?
+                    auth_stream_send.write_all(&data).await?;
+                    *auth_state.write().await = AuthState::Authenticated(username);
                 }
-                _ => todo!("Close connection"),
+                (AuthState::TimedOut, _) => {
+                    error!("Client {} timed out", client_address.addr());
+                    // TODO: Use consts for QUIC error codes
+                    connection.close(
+                        VarInt::from_u32(0x01),
+                        "Authentication timed out".as_bytes(),
+                    );
+                    break;
+                }
+                _ => {
+                    error!("Client {} authentication failed", client_address.addr());
+                    connection.close(VarInt::from_u32(0x01), "Invalid authentication".as_bytes());
+                    break;
+                }
             }
-        }
-    }
-
-    pub fn start_worker(&mut self) -> Result<()> {
-        if self.connection_worker.is_some() {
-            return Err(anyhow!("There is already a worker active"));
         }
 
         self.authentication_worker = Some(tokio::spawn(Self::process_authentication_stream(
