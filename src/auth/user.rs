@@ -79,7 +79,7 @@ impl TryFrom<String> for User {
             .ok_or_else(|| anyhow!("Failed to parse username from string: {user_string}"))?
             .clone();
         let password_hash_string = split
-            .get(0)
+            .get(1)
             .ok_or_else(|| anyhow!("Failed to parse password hash from string: {user_string}"))?
             .clone();
 
