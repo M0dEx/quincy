@@ -178,7 +178,7 @@ impl QuincyConnection {
                     let response = AuthServerMessage::Authenticated(
                         client_address.addr().into(),
                         client_address.netmask().into(),
-                        session_token.into(),
+                        session_token,
                     );
 
                     let data = encode_message(response)?;

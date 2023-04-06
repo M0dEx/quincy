@@ -4,12 +4,13 @@ use crate::auth::user::User;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use bincode::{Decode, Encode};
-use bytes::Bytes;
 use dashmap::DashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
+
+pub type SessionToken = [u8; 16];
 
 /// Represents the internal authentication state for a session.
 pub enum AuthState {
@@ -20,16 +21,16 @@ pub enum AuthState {
 }
 
 /// Represents an authentication message sent by the client.
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub enum AuthClientMessage {
     Authentication(String, String),
-    SessionToken(Vec<u8>),
+    SessionToken(SessionToken),
 }
 
 /// Represents an authentication message sent by the server.
 #[derive(Encode, Decode)]
 pub enum AuthServerMessage {
-    Authenticated(u32, u32, Vec<u8>),
+    Authenticated(u32, u32, SessionToken),
     Ok,
 }
 
@@ -59,7 +60,7 @@ impl Auth {
     ///
     /// ### Returns
     /// - `Bytes` containing the session token
-    pub async fn authenticate(&self, username: &str, password: String) -> Result<Bytes> {
+    pub async fn authenticate(&self, username: &str, password: String) -> Result<SessionToken> {
         let user = self
             .users
             .get(username)
@@ -83,7 +84,7 @@ impl Auth {
     ///
     /// ### Returns
     /// - `true` if the session token is valid, `false` otherwise
-    pub fn verify_session_token(&self, username: &str, session_token: Bytes) -> Result<bool> {
+    pub fn verify_session_token(&self, username: &str, session_token: SessionToken) -> Result<bool> {
         let user = self
             .users
             .get(username)

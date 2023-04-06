@@ -1,10 +1,10 @@
 use crate::constants::CPRNG;
 use anyhow::{anyhow, Result};
-use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use getset::Getters;
 use rand_chacha::rand_core::RngCore;
+use crate::auth::SessionToken;
 
 /// Represents a Quincy user
 #[derive(Getters)]
@@ -13,7 +13,7 @@ pub struct User {
     username: String,
     #[get = "pub"]
     password_hash: String,
-    session_tokens: DashMap<Bytes, DateTime<Utc>>,
+    session_tokens: DashMap<SessionToken, DateTime<Utc>>,
 }
 
 impl User {
@@ -37,7 +37,7 @@ impl User {
     ///
     /// ### Returns
     /// - `true` if the session token is valid, `false` otherwise
-    pub fn check_session_validity(&self, session_token: Bytes) -> bool {
+    pub fn check_session_validity(&self, session_token: SessionToken) -> bool {
         let valid = match self.session_tokens.get(&session_token) {
             Some(token) => &Utc::now() <= token.value(),
             None => false,
@@ -54,16 +54,13 @@ impl User {
     ///
     /// ### Returns
     /// `Bytes` containing the session token
-    pub async fn new_session(&self) -> Bytes {
-        let mut buf = BytesMut::with_capacity(32);
-
-        CPRNG.lock().await.fill_bytes(&mut buf);
-
-        let session_token: Bytes = buf.into();
+    pub async fn new_session(&self) -> SessionToken {
+        let mut session_token: SessionToken = [0 as u8; 16];
+        CPRNG.lock().await.fill_bytes(&mut session_token);
 
         // TODO: Make this configurable
         self.session_tokens
-            .insert(session_token.clone(), Utc::now() + Duration::days(1));
+            .insert(session_token, Utc::now() + Duration::days(1));
 
         session_token
     }

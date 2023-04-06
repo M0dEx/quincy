@@ -1,4 +1,4 @@
-use crate::auth::{AuthClientMessage, AuthServerMessage};
+use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 use crate::certificates::load_certificates_from_file;
 use crate::config::{ClientConfig, ConnectionConfig};
 use crate::constants::{
@@ -125,14 +125,13 @@ async fn authenticate(
     client_config: &ClientConfig,
     auth_send: &mut SendStream,
     auth_recv: &mut RecvStream,
-) -> Result<(Ipv4Net, Vec<u8>)> {
+) -> Result<(Ipv4Net, SessionToken)> {
     let basic_auth = AuthClientMessage::Authentication(
         client_config.authentication.username.clone(),
         client_config.authentication.password.clone(),
     );
 
     let buf = encode_message(basic_auth)?;
-
     auth_send.write_all(&buf).await?;
 
     let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
@@ -152,11 +151,11 @@ async fn authenticate(
 async fn manage_session(
     mut auth_send: SendStream,
     mut auth_recv: RecvStream,
-    session_token: Vec<u8>,
+    session_token: SessionToken,
 ) -> Result<()> {
     let auth_interval = Duration::from_secs(100);
 
-    let message = AuthClientMessage::SessionToken(session_token.clone());
+    let message = AuthClientMessage::SessionToken(session_token);
     let buf = encode_message(message)?;
 
     loop {
