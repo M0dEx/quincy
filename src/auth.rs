@@ -6,8 +6,9 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use bincode::{Decode, Encode};
 use bytes::Bytes;
 use dashmap::DashMap;
+use std::fs;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 /// Represents the internal authentication state for a session.
@@ -110,6 +111,26 @@ impl Auth {
         }
 
         Ok(result)
+    }
+
+    /// Writes the users and their password hashes into the specified file
+    ///
+    /// ### Arguments
+    /// - `users_file` - path to the users file
+    /// - `users` - a map of users (username -> `User`)
+    pub fn save_users_file(users_file: &Path, users: DashMap<String, User>) -> Result<()> {
+        if users_file.exists() {
+            fs::remove_file(users_file)?;
+        }
+
+        let file = File::create(users_file)?;
+        let mut writer = BufWriter::new(file);
+
+        for (username, user) in users {
+            writer.write_all(format!("{username}:{}\n", user.password_hash()).as_bytes())?;
+        }
+
+        Ok(())
     }
 }
 
