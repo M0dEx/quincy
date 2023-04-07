@@ -126,7 +126,12 @@ impl QuincyClient {
         let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
         auth_recv.read_buf(&mut buf).await?;
 
-        let auth_response: AuthServerMessage = decode_message(buf.into())?;
+        // FIXME: This should not be necessary
+        let auth_response = if !buf.is_empty() {
+            decode_message(buf.into())?
+        } else {
+            AuthServerMessage::Failed
+        };
 
         match auth_response {
             AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => Ok((

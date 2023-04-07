@@ -194,6 +194,7 @@ impl QuincyConnection {
                     // TODO: Use consts for QUIC error codes
                     let data = encode_message(AuthServerMessage::Failed)?;
                     auth_stream_send.write_all(&data).await?;
+                    auth_stream_send.finish().await?;
                     connection.close(
                         VarInt::from_u32(0x01),
                         "Authentication timed out".as_bytes(),
@@ -204,6 +205,7 @@ impl QuincyConnection {
                     error!("Client {} authentication failed", client_address.addr());
                     let data = encode_message(AuthServerMessage::Failed)?;
                     auth_stream_send.write_all(&data).await?;
+                    auth_stream_send.finish().await?;
                     connection.close(VarInt::from_u32(0x01), "Invalid authentication".as_bytes());
                     break;
                 }
