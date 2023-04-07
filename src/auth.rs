@@ -32,6 +32,7 @@ pub enum AuthClientMessage {
 pub enum AuthServerMessage {
     Authenticated(u32, u32, SessionToken),
     Ok,
+    Failed,
 }
 
 /// Represents a module providing basic authentication functionality.
