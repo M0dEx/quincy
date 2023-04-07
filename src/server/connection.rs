@@ -25,6 +25,7 @@ pub struct QuincyConnection {
     client_address: Ipv4Net,
     auth: Arc<Auth>,
     auth_state: SharedAuthState,
+    auth_timeout: u32,
     tun_queue: Arc<UnboundedSender<Bytes>>,
     authentication_worker: Option<JoinHandle<Result<()>>>,
     connection_worker: Option<JoinHandle<Result<()>>>,
@@ -42,6 +43,7 @@ impl QuincyConnection {
         connection: Connection,
         tun_queue: Arc<UnboundedSender<Bytes>>,
         auth: Arc<Auth>,
+        auth_timeout: u32,
         client_address: Ipv4Net,
     ) -> Self {
         Self {
@@ -49,6 +51,7 @@ impl QuincyConnection {
             client_address,
             auth,
             auth_state: Arc::new(RwLock::new(AuthState::Unauthenticated)),
+            auth_timeout,
             tun_queue,
             authentication_worker: None,
             connection_worker: None,
@@ -82,6 +85,7 @@ impl QuincyConnection {
             self.connection.clone(),
             self.auth.clone(),
             self.auth_state.clone(),
+            self.auth_timeout,
             self.client_address,
         )));
 
@@ -147,11 +151,11 @@ impl QuincyConnection {
         connection: Arc<Connection>,
         auth: Arc<Auth>,
         auth_state: SharedAuthState,
+        auth_timeout: u32,
         client_address: Ipv4Net,
     ) -> Result<()> {
         let (mut auth_stream_send, mut auth_stream_recv) = connection.accept_bi().await?;
-        // TODO: Make this configurable
-        let auth_interval = Duration::from_secs(120);
+        let auth_interval = Duration::from_secs(auth_timeout as u64);
 
         loop {
             let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
@@ -165,7 +169,7 @@ impl QuincyConnection {
 
             match (&*auth_state.read().await, message) {
                 (AuthState::Authenticated(username), AuthClientMessage::SessionToken(token)) => {
-                    if auth.verify_session_token(username, token.into())? {
+                    if auth.verify_session_token(username, token)? {
                         let data = encode_message(AuthServerMessage::Ok)?;
                         auth_stream_send.write_all(&data).await?
                     }

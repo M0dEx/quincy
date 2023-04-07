@@ -118,6 +118,7 @@ impl QuincyTunnel {
             connection,
             self.write_queue_sender.clone(),
             self.auth.clone(),
+            self.tun_config.auth_timeout,
             client_tun_ip,
         );
         connection.start_worker()?;
