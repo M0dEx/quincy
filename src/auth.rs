@@ -30,7 +30,7 @@ pub enum AuthClientMessage {
 /// Represents an authentication message sent by the server.
 #[derive(Encode, Decode)]
 pub enum AuthServerMessage {
-    Authenticated(u32, u32, SessionToken),
+    Authenticated(Vec<u8>, Vec<u8>, SessionToken),
     Ok,
     Failed,
 }

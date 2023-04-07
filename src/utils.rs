@@ -1,9 +1,11 @@
 use crate::constants::BINCODE_CONFIG;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bincode::{Decode, Encode};
 use bytes::Bytes;
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::SocketAddr;
+use std::mem::size_of;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use tracing::warn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
@@ -68,4 +70,35 @@ pub fn decode_message<M: Decode>(data: Bytes) -> Result<M> {
     let (res, _) = bincode::decode_from_slice(&data, *BINCODE_CONFIG)?;
 
     Ok(res)
+}
+
+pub fn ip_addr_to_bytes(addr: IpAddr) -> Vec<u8> {
+    match addr {
+        IpAddr::V4(addr) => addr.octets().into(),
+        IpAddr::V6(addr) => addr.octets().into(),
+    }
+}
+
+pub fn ip_addr_from_bytes(bytes: &[u8]) -> Result<IpAddr> {
+    if bytes.len() == size_of::<Ipv4Addr>() {
+        let octets: [u8; 4] = bytes.try_into()?;
+        Ok(IpAddr::V4(octets.into()))
+    } else if bytes.len() == size_of::<Ipv6Addr>() {
+        let octets: [u8; 16] = bytes.try_into()?;
+        Ok(IpAddr::V6(octets.into()))
+    } else {
+        Err(anyhow!("Failed to parse IpAddr from bytes"))
+    }
+}
+
+pub fn ip_net_from_addr_mask(addr: IpAddr, netmask: IpAddr) -> Result<IpNet> {
+    match (addr, netmask) {
+        (IpAddr::V4(addr), IpAddr::V4(netmask)) => {
+            Ok(IpNet::V4(Ipv4Net::with_netmask(addr, netmask)?))
+        }
+        (IpAddr::V6(addr), IpAddr::V6(netmask)) => {
+            Ok(IpNet::V6(Ipv6Net::with_netmask(addr, netmask)?))
+        }
+        _ => Err(anyhow!("Could not parse IpNet from address and netmask")),
+    }
 }

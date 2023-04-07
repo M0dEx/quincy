@@ -1,10 +1,10 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
 use crate::constants::BINCODE_BUFFER_SIZE;
-use crate::utils::{decode_message, encode_message};
+use crate::utils::{decode_message, encode_message, ip_addr_to_bytes};
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;
-use ipnet::Ipv4Net;
+use ipnet::IpNet;
 use quinn::SendDatagramError;
 use quinn::{Connection, VarInt};
 use std::net::SocketAddr;
@@ -22,7 +22,7 @@ type SharedAuthState = Arc<RwLock<AuthState>>;
 /// Represents a Quincy connection encapsulating authentication and IO.
 pub struct QuincyConnection {
     connection: Arc<Connection>,
-    client_address: Ipv4Net,
+    client_address: IpNet,
     auth: Arc<Auth>,
     auth_state: SharedAuthState,
     auth_timeout: u32,
@@ -44,7 +44,7 @@ impl QuincyConnection {
         tun_queue: Arc<UnboundedSender<Bytes>>,
         auth: Arc<Auth>,
         auth_timeout: u32,
-        client_address: Ipv4Net,
+        client_address: IpNet,
     ) -> Self {
         Self {
             connection: Arc::new(connection),
@@ -155,7 +155,7 @@ impl QuincyConnection {
         auth: Arc<Auth>,
         auth_state: SharedAuthState,
         auth_timeout: u32,
-        client_address: Ipv4Net,
+        client_address: IpNet,
     ) -> Result<()> {
         let (mut auth_stream_send, mut auth_stream_recv) = connection.accept_bi().await?;
         let auth_interval = Duration::from_secs(auth_timeout as u64);
@@ -183,8 +183,8 @@ impl QuincyConnection {
                 ) => {
                     let session_token = auth.authenticate(&username, password).await?;
                     let response = AuthServerMessage::Authenticated(
-                        client_address.addr().into(),
-                        client_address.netmask().into(),
+                        ip_addr_to_bytes(client_address.addr()),
+                        ip_addr_to_bytes(client_address.netmask()),
                         session_token,
                     );
 

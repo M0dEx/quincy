@@ -2,10 +2,12 @@ use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 
 use crate::config::ClientConfig;
 use crate::constants::BINCODE_BUFFER_SIZE;
-use crate::utils::{bind_socket, decode_message, encode_message};
+use crate::utils::{
+    bind_socket, decode_message, encode_message, ip_addr_from_bytes, ip_net_from_addr_mask,
+};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use ipnet::Ipv4Net;
+use ipnet::{IpNet, Ipv4Net};
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
@@ -134,10 +136,17 @@ impl QuincyClient {
         };
 
         match auth_response {
-            AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => Ok((
-                Ipv4Net::with_netmask(addr_data.into(), netmask_data.into())?,
-                session_token,
-            )),
+            AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => {
+                let address = ip_net_from_addr_mask(
+                    ip_addr_from_bytes(&addr_data)?,
+                    ip_addr_from_bytes(&netmask_data)?,
+                )?;
+
+                match address {
+                    IpNet::V4(address) => Ok((address, session_token)),
+                    IpNet::V6(_) => todo!("IPv6 TUN addresses are unsupported"),
+                }
+            }
             _ => Err(anyhow!("Authentication failed")),
         }
     }
