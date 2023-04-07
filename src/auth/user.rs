@@ -1,10 +1,10 @@
+use crate::auth::SessionToken;
 use crate::constants::CPRNG;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use getset::Getters;
 use rand_chacha::rand_core::RngCore;
-use crate::auth::SessionToken;
 
 /// Represents a Quincy user
 #[derive(Getters)]
@@ -55,7 +55,7 @@ impl User {
     /// ### Returns
     /// `Bytes` containing the session token
     pub async fn new_session(&self) -> SessionToken {
-        let mut session_token: SessionToken = [0 as u8; 16];
+        let mut session_token: SessionToken = SessionToken::default();
         CPRNG.lock().await.fill_bytes(&mut session_token);
 
         // TODO: Make this configurable

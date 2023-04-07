@@ -84,7 +84,11 @@ impl Auth {
     ///
     /// ### Returns
     /// - `true` if the session token is valid, `false` otherwise
-    pub fn verify_session_token(&self, username: &str, session_token: SessionToken) -> Result<bool> {
+    pub fn verify_session_token(
+        &self,
+        username: &str,
+        session_token: SessionToken,
+    ) -> Result<bool> {
         let user = self
             .users
             .get(username)
