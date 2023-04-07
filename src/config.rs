@@ -3,13 +3,21 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
+use quinn::{TransportConfig, VarInt};
+use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use tracing::warn;
+use std::sync::Arc;
+
+use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
+use crate::constants::{
+    QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+};
+use tracing::{error, warn};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Mode {
@@ -49,6 +57,8 @@ pub struct TunnelConfig {
     pub address_server: Ipv4Addr,
     pub address_mask: Ipv4Addr,
     pub users_file: PathBuf,
+    #[serde(default = "default_auth_timeout")]
+    pub auth_timeout: u32,
 }
 
 //
@@ -67,6 +77,8 @@ pub struct ClientAuthenticationConfig {
     pub username: String,
     pub password: String,
     pub trusted_certificates: Vec<PathBuf>,
+    #[serde(default = "default_auth_timeout")]
+    pub auth_timeout: u32,
 }
 
 //
@@ -111,7 +123,7 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
 }
 
 impl ConfigInit<ServerConfig> for ServerConfig {
-    fn init(figment: Figment, env_prefix: &str) -> Result<ServerConfig> {
+    fn init(figment: Figment, env_prefix: &str) -> Result<Self> {
         let mut config: ServerConfig = figment.extract()?;
 
         let tunnel_configs: Vec<TunnelConfig> = match &config.tunnel_path {
@@ -165,4 +177,86 @@ fn default_bind_port() -> u16 {
 
 fn default_buffer_size() -> u64 {
     2097152
+}
+
+fn default_auth_timeout() -> u32 {
+    120
+}
+
+impl ClientConfig {
+    pub fn as_quinn_client_config(&self) -> Result<quinn::ClientConfig> {
+        let trusted_certificates: Vec<Certificate> = self
+            .authentication
+            .trusted_certificates
+            .iter()
+            .filter_map(|cert_path| match load_certificates_from_file(cert_path) {
+                Ok(certificates) => Some(certificates),
+                Err(e) => {
+                    error!("Could not load certificates from {cert_path:?} due to an error: {e}");
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+
+        let mut cert_store = RootCertStore::empty();
+
+        for certificate in trusted_certificates {
+            cert_store.add(&certificate)?;
+        }
+
+        let mut rustls_config = rustls::ClientConfig::builder()
+            .with_cipher_suites(QUINCY_CIPHER_SUITES)
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+            .with_root_certificates(cert_store)
+            .with_no_client_auth();
+
+        rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
+
+        let mut quinn_config = quinn::ClientConfig::new(Arc::new(rustls_config));
+        let mut transport_config = TransportConfig::default();
+
+        transport_config.max_idle_timeout(Some(
+            VarInt::from_u32(self.authentication.auth_timeout * 1_000).into(),
+        ));
+        transport_config
+            .initial_max_udp_payload_size(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
+
+        quinn_config.transport_config(Arc::new(transport_config));
+
+        Ok(quinn_config)
+    }
+}
+
+impl TunnelConfig {
+    pub fn as_quinn_server_config(
+        &self,
+        connection_config: &ConnectionConfig,
+    ) -> Result<quinn::ServerConfig> {
+        let certificate_file_path = self.certificate_file.clone();
+        let certificate_key_path = self.certificate_key_file.clone();
+        let key = load_private_key_from_file(&certificate_key_path)?;
+        let certs = load_certificates_from_file(&certificate_file_path)?;
+
+        let mut rustls_config = rustls::ServerConfig::builder()
+            .with_cipher_suites(QUINCY_CIPHER_SUITES)
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+            .with_no_client_auth()
+            .with_single_cert(certs, key)?;
+
+        rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
+
+        let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
+        let mut transport_config = TransportConfig::default();
+
+        transport_config.max_idle_timeout(Some(VarInt::from_u32(self.auth_timeout * 1_000).into()));
+        transport_config
+            .initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
+
+        quinn_config.transport_config(Arc::new(transport_config));
+
+        Ok(quinn_config)
+    }
 }

@@ -2,11 +2,7 @@ use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
 use crate::auth::Auth;
-use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::config::{ConnectionConfig, TunnelConfig};
-use crate::constants::{
-    QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
-};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
 use crate::utils::bind_socket;
@@ -14,11 +10,10 @@ use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
-use quinn::{Connection, Endpoint, TransportConfig};
+use quinn::{Connection, Endpoint};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
-use tokio::task;
 use tokio::task::JoinHandle;
 use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, info, warn};
@@ -94,7 +89,9 @@ impl QuincyTunnel {
             self.write_queue_receiver.clone(),
         )));
 
-        let quinn_configuration = self.quinn_configuration().await?;
+        let quinn_configuration = self
+            .tun_config
+            .as_quinn_server_config(&self.connection_config)?;
         let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
 
         info!("Listening on {}", endpoint.local_addr().unwrap());
@@ -130,37 +127,6 @@ impl QuincyTunnel {
             .insert(IpAddr::V4(client_tun_ip.addr()), connection);
 
         Ok(())
-    }
-
-    async fn quinn_configuration(&self) -> Result<quinn::ServerConfig> {
-        let certificate_file_path = self.tun_config.certificate_file.clone();
-        let certificate_key_path = self.tun_config.certificate_key_file.clone();
-        let key = task::spawn_blocking(move || load_private_key_from_file(&certificate_key_path))
-            .await??;
-        let certs =
-            task::spawn_blocking(move || load_certificates_from_file(&certificate_file_path))
-                .await??;
-
-        let mut rustls_config = rustls::ServerConfig::builder()
-            .with_cipher_suites(QUINCY_CIPHER_SUITES)
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?;
-
-        rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
-
-        let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
-        let mut transport_config = TransportConfig::default();
-
-        // TODO: Investigate whether there could be a better solution
-        transport_config.max_idle_timeout(None);
-        transport_config
-            .initial_max_udp_payload_size(self.connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
-
-        quinn_config.transport_config(Arc::new(transport_config));
-
-        Ok(quinn_config)
     }
 
     fn create_quinn_endpoint(&self, quinn_config: quinn::ServerConfig) -> Result<Endpoint> {
