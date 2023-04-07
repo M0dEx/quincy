@@ -62,17 +62,20 @@ impl QuincyConnection {
     ///
     /// ### Returns
     /// - `true` if the authentication and connection workers are running, `false` if not
-    pub async fn is_ok(&self) -> Result<bool> {
-        Ok(!self
+    pub fn is_ok(&self) -> bool {
+        let authentication_worker_ok = self
             .authentication_worker
             .as_ref()
-            .ok_or_else(|| anyhow!("Authentication worker does not exist"))?
-            .is_finished()
-            && !self
-                .connection_worker
-                .as_ref()
-                .ok_or_else(|| anyhow!("Connection worker does not exist"))?
-                .is_finished())
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        let connection_worker_ok = self
+            .connection_worker
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        authentication_worker_ok && connection_worker_ok
     }
 
     /// Start the authentication and connection workers for this connection.

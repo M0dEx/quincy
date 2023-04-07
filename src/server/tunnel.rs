@@ -1,5 +1,6 @@
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::auth::Auth;
 use crate::config::{ConnectionConfig, TunnelConfig};
@@ -10,11 +11,13 @@ use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
+use ipnet::{IpNet, Ipv4Net};
 use quinn::{Connection, Endpoint};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, info, warn};
 
@@ -34,8 +37,9 @@ pub struct QuincyTunnel {
     buffer_size: usize,
     reader_task: Option<JoinHandle<Result<()>>>,
     writer_task: Option<JoinHandle<Result<()>>>,
+    cleanup_task: Option<JoinHandle<Result<()>>>,
     auth: Arc<Auth>,
-    address_pool: AddressPool,
+    address_pool: Arc<AddressPool>,
 }
 
 impl QuincyTunnel {
@@ -55,8 +59,10 @@ impl QuincyTunnel {
         let (tun_read, tun_write) = tokio::io::split(tun_interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let auth = Auth::new(Auth::load_users_file(&tunnel_config.users_file)?);
-        let address_pool =
-            AddressPool::new(tunnel_config.address_server, tunnel_config.address_mask)?;
+        let address_pool = AddressPool::new(IpNet::V4(Ipv4Net::with_netmask(
+            tunnel_config.address_server,
+            tunnel_config.address_mask,
+        )?))?;
 
         Ok(Self {
             tun_config: tunnel_config,
@@ -69,8 +75,9 @@ impl QuincyTunnel {
             buffer_size: buffer_size as usize,
             reader_task: None,
             writer_task: None,
+            cleanup_task: None,
             auth: Arc::new(auth),
-            address_pool,
+            address_pool: Arc::new(address_pool),
         })
     }
 
@@ -88,6 +95,10 @@ impl QuincyTunnel {
             self.tun_write.clone(),
             self.write_queue_receiver.clone(),
         )));
+        self.cleanup_task = Some(tokio::spawn(Self::cleanup_connections(
+            self.active_connections.clone(),
+            self.address_pool.clone(),
+        )));
 
         let quinn_configuration = self
             .tun_config
@@ -101,6 +112,38 @@ impl QuincyTunnel {
         }
 
         Ok(())
+    }
+
+    async fn cleanup_connections(
+        connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+        address_pool: Arc<AddressPool>,
+    ) -> Result<()> {
+        let cleanup_interval = Duration::from_secs(1);
+
+        loop {
+            let mut stale_connections = vec![];
+
+            for connection in connections.iter() {
+                if !connection.value().is_ok() {
+                    stale_connections.push(connection.key().to_owned());
+                }
+            }
+
+            for connection_addr in stale_connections {
+                warn!(
+                    "Deactivating stale connection for client: {}",
+                    connection_addr
+                );
+                let (_, mut connection) = connections
+                    .remove(&connection_addr)
+                    .expect("Stale connection exists");
+
+                connection.stop_workers().await?;
+                address_pool.release_address(connection_addr);
+            }
+
+            sleep(cleanup_interval).await;
+        }
     }
 
     async fn handle_incoming_connection(&self, connection: Connection) -> Result<()> {
@@ -125,7 +168,7 @@ impl QuincyTunnel {
         debug!("Started connection worker for client {client_tun_ip}");
 
         self.active_connections
-            .insert(IpAddr::V4(client_tun_ip.addr()), connection);
+            .insert(client_tun_ip.addr(), connection);
 
         Ok(())
     }
@@ -195,19 +238,6 @@ impl QuincyTunnel {
                 None => continue,
             };
             debug!("Found connection for IP {dest_addr}");
-
-            if !connection.is_ok().await? {
-                warn!("Deactivating stale connection for client: {dest_addr}");
-
-                // Drop the reference to prevent deadlocking
-                drop(connection);
-                let (_, mut connection) = active_connections
-                    .remove(&dest_addr)
-                    .expect("Connection exists");
-
-                connection.stop_workers().await?;
-                continue;
-            }
 
             let max_datagram_size = connection.max_datagram_size().ok_or_else(|| {
                 anyhow!(
