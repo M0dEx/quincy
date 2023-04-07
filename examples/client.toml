@@ -1,4 +1,4 @@
-connection_address = "quincy:55555"
+connection_string = "quincy:55555"
 
 [authentication]
 username = "test"

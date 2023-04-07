@@ -66,7 +66,7 @@ pub struct TunnelConfig {
 //
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientConfig {
-    pub connection_address: String,
+    pub connection_string: String,
     pub authentication: ClientAuthenticationConfig,
     pub connection: ConnectionConfig,
     pub log: LogConfig,
