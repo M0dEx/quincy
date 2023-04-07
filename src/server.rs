@@ -31,7 +31,7 @@ impl QuincyServer {
         })
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&self) -> Result<()> {
         let mut futures = FuturesUnordered::new();
 
         for entry in self.active_tunnels.iter() {
