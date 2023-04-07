@@ -218,7 +218,7 @@ impl ClientConfig {
         let mut transport_config = TransportConfig::default();
 
         transport_config.max_idle_timeout(Some(
-            VarInt::from_u32(self.authentication.auth_timeout * 1_000).into(),
+            VarInt::from_u32(self.authentication.auth_timeout * 2 * 1_000).into(),
         ));
         transport_config
             .initial_max_udp_payload_size(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
@@ -251,7 +251,8 @@ impl TunnelConfig {
         let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
 
-        transport_config.max_idle_timeout(Some(VarInt::from_u32(self.auth_timeout * 1_000).into()));
+        transport_config
+            .max_idle_timeout(Some(VarInt::from_u32(self.auth_timeout * 2 * 1_000).into()));
         transport_config
             .initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
 
