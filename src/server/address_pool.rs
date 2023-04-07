@@ -1,22 +1,20 @@
 use anyhow::Result;
 use dashmap::DashSet;
-use ipnet::{Ipv4AddrRange, Ipv4Net};
-use std::net::Ipv4Addr;
+use ipnet::{IpAddrRange, IpNet, Ipv4AddrRange, Ipv6AddrRange};
+use std::net::IpAddr;
 
 /// Represents a pool of addresses from which addresses can be requested and released.
 pub struct AddressPool {
-    network: Ipv4Net,
-    used_addresses: DashSet<Ipv4Addr>,
+    network: IpNet,
+    used_addresses: DashSet<IpAddr>,
 }
 
 impl AddressPool {
     /// Creates a new instance of an `AddressPool`.
     ///
     /// ### Arguments
-    /// - `address_server` - the base address of this pool
-    /// - `address_mask` - the mask defining the subnet contained by this pool
-    pub fn new(address_server: Ipv4Addr, address_mask: Ipv4Addr) -> Result<Self> {
-        let network = Ipv4Net::with_netmask(address_server, address_mask)?;
+    /// - `network` - the network address and mask
+    pub fn new(network: IpNet) -> Result<Self> {
         let used = DashSet::from_iter(vec![network.network(), network.addr(), network.broadcast()]);
 
         Ok(Self {
@@ -26,14 +24,21 @@ impl AddressPool {
     }
 
     /// Returns the next available address if such an address exists.
-    pub fn next_available_address(&self) -> Option<Ipv4Net> {
-        let mut range = Ipv4AddrRange::new(self.network.network(), self.network.broadcast());
+    pub fn next_available_address(&self) -> Option<IpNet> {
+        let mut range = match self.network {
+            IpNet::V4(network) => {
+                IpAddrRange::V4(Ipv4AddrRange::new(network.network(), network.broadcast()))
+            }
+            IpNet::V6(network) => {
+                IpAddrRange::V6(Ipv6AddrRange::new(network.network(), network.broadcast()))
+            }
+        };
 
         range
             .find(|address| !self.used_addresses.contains(address))
             .map(|address| {
                 self.used_addresses.insert(address);
-                Ipv4Net::with_netmask(address, self.network.netmask())
+                IpNet::with_netmask(address, self.network.netmask())
                     .expect("Netmask will always be valid")
             })
     }
@@ -42,7 +47,7 @@ impl AddressPool {
     ///
     /// ### Arguments
     /// - `address` - the address to release
-    pub fn release_address(&self, address: Ipv4Addr) {
+    pub fn release_address(&self, address: IpAddr) {
         self.used_addresses.remove(&address);
     }
 }
@@ -50,34 +55,43 @@ impl AddressPool {
 #[cfg(test)]
 mod tests {
     use crate::server::address_pool::AddressPool;
-    use ipnet::Ipv4Net;
-    use std::net::Ipv4Addr;
+    use ipnet::{IpNet, Ipv4Net};
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_address_pool() {
-        let pool = AddressPool::new(
-            Ipv4Addr::new(10, 0, 0, 1),
-            Ipv4Addr::new(255, 255, 255, 252),
-        )
+        let pool = AddressPool::new(IpNet::V4(
+            Ipv4Net::with_netmask(
+                Ipv4Addr::new(10, 0, 0, 1),
+                Ipv4Addr::new(255, 255, 255, 252),
+            )
+            .unwrap(),
+        ))
         .unwrap();
 
         assert_eq!(
             pool.next_available_address().unwrap(),
-            Ipv4Net::with_netmask(
-                Ipv4Addr::new(10, 0, 0, 2),
-                Ipv4Addr::new(255, 255, 255, 252)
+            IpNet::V4(
+                Ipv4Net::with_netmask(
+                    Ipv4Addr::new(10, 0, 0, 2),
+                    Ipv4Addr::new(255, 255, 255, 252),
+                )
+                .unwrap()
             )
-            .unwrap()
         );
+
         assert_eq!(pool.next_available_address(), None);
-        pool.release_address(Ipv4Addr::new(10, 0, 0, 2));
+        pool.release_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+
         assert_eq!(
             pool.next_available_address().unwrap(),
-            Ipv4Net::with_netmask(
-                Ipv4Addr::new(10, 0, 0, 2),
-                Ipv4Addr::new(255, 255, 255, 252)
+            IpNet::V4(
+                Ipv4Net::with_netmask(
+                    Ipv4Addr::new(10, 0, 0, 2),
+                    Ipv4Addr::new(255, 255, 255, 252),
+                )
+                .unwrap()
             )
-            .unwrap()
         );
     }
 }
