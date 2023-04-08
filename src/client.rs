@@ -3,7 +3,7 @@ use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 use crate::config::ClientConfig;
 use crate::constants::BINCODE_BUFFER_SIZE;
 use crate::utils::{
-    bind_socket, decode_message, encode_message, ip_addr_from_bytes, ip_net_from_addr_mask,
+    bind_socket, decode_message, encode_message, ip_addr_from_bytes,
 };
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
@@ -137,7 +137,7 @@ impl QuincyClient {
 
         match auth_response {
             AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => {
-                let address = ip_net_from_addr_mask(
+                let address = IpNet::with_netmask(
                     ip_addr_from_bytes(&addr_data)?,
                     ip_addr_from_bytes(&netmask_data)?,
                 )?;
