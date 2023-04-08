@@ -2,9 +2,7 @@ use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 
 use crate::config::ClientConfig;
 use crate::constants::BINCODE_BUFFER_SIZE;
-use crate::utils::{
-    bind_socket, decode_message, encode_message, ip_addr_from_bytes,
-};
+use crate::utils::{bind_socket, decode_message, encode_message, ip_addr_from_bytes};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use ipnet::{IpNet, Ipv4Net};
