@@ -13,11 +13,10 @@ use std::path::Path;
 pub type SessionToken = [u8; 16];
 
 /// Represents the internal authentication state for a session.
+#[derive(Clone, Debug, PartialEq)]
 pub enum AuthState {
     Unauthenticated,
     Authenticated(String),
-    TimedOut,
-    Failed,
 }
 
 /// Represents an authentication message sent by the client.

@@ -1,5 +1,5 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
-use crate::constants::BINCODE_BUFFER_SIZE;
+use crate::constants::{AUTH_TIMEOUT_GRACE, BINCODE_BUFFER_SIZE};
 use crate::utils::{decode_message, encode_message, ip_addr_to_bytes};
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
@@ -158,28 +158,33 @@ impl QuincyConnection {
         client_address: IpNet,
     ) -> Result<()> {
         let (mut auth_stream_send, mut auth_stream_recv) = connection.accept_bi().await?;
-        let auth_interval = Duration::from_secs(auth_timeout as u64);
+        let auth_interval = Duration::from_secs(auth_timeout as u64 + AUTH_TIMEOUT_GRACE);
 
         loop {
             let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
 
-            match timeout(auth_interval, auth_stream_recv.read_buf(&mut buf)).await {
-                Ok(_) => {}
-                Err(_) => *auth_state.write().await = AuthState::TimedOut,
-            }
+            let message: Option<AuthClientMessage> =
+                match timeout(auth_interval, auth_stream_recv.read_buf(&mut buf)).await {
+                    Ok(_) => Some(decode_message(buf.into())?),
+                    Err(_) => None,
+                };
 
-            let message: AuthClientMessage = decode_message(buf.into())?;
+            let state = auth_state.read().await.clone();
+            let mut new_state: AuthState = state.clone();
 
-            match (&*auth_state.read().await, message) {
-                (AuthState::Authenticated(username), AuthClientMessage::SessionToken(token)) => {
-                    if auth.verify_session_token(username, token)? {
+            match (state, message) {
+                (
+                    AuthState::Authenticated(username),
+                    Some(AuthClientMessage::SessionToken(token)),
+                ) => {
+                    if auth.verify_session_token(&username, token)? {
                         let data = encode_message(AuthServerMessage::Ok)?;
                         auth_stream_send.write_all(&data).await?
                     }
                 }
                 (
                     AuthState::Unauthenticated,
-                    AuthClientMessage::Authentication(username, password),
+                    Some(AuthClientMessage::Authentication(username, password)),
                 ) => {
                     let session_token = auth.authenticate(&username, password).await?;
                     let response = AuthServerMessage::Authenticated(
@@ -190,9 +195,9 @@ impl QuincyConnection {
 
                     let data = encode_message(response)?;
                     auth_stream_send.write_all(&data).await?;
-                    *auth_state.write().await = AuthState::Authenticated(username);
+                    new_state = AuthState::Authenticated(username);
                 }
-                (AuthState::TimedOut, _) => {
+                (_, None) => {
                     error!("Client {} timed out", client_address.addr());
                     // TODO: Use consts for QUIC error codes
                     let data = encode_message(AuthServerMessage::Failed)?;
@@ -213,6 +218,8 @@ impl QuincyConnection {
                     break;
                 }
             }
+
+            *auth_state.write().await = new_state;
         }
 
         Ok(())

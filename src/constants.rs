@@ -5,6 +5,8 @@ use rand_chacha::ChaCha20Rng;
 use tokio::sync::Mutex;
 
 pub const BINCODE_BUFFER_SIZE: usize = 128;
+pub const AUTH_TIMEOUT_GRACE: u64 = 5;
+
 pub static BINCODE_CONFIG: Lazy<Configuration<LittleEndian, Varint, Limit<BINCODE_BUFFER_SIZE>>> =
     Lazy::new(|| bincode::config::standard().with_limit::<BINCODE_BUFFER_SIZE>());
 
