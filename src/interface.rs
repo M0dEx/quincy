@@ -1,4 +1,3 @@
-use crate::constants::PACKET_INFO_HEADER_SIZE;
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use ipnet::IpNet;
@@ -34,7 +33,7 @@ pub async fn read_from_interface(
     interface.read_buf(&mut buf).await?;
 
     #[cfg(target_os = "macos")]
-    let data = Bytes::from(buf).slice(PACKET_INFO_HEADER_SIZE..);
+    let data = truncate_packet_info_header(buf);
 
     #[cfg(not(target_os = "macos"))]
     let data = buf.into();
@@ -58,13 +57,22 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
 #[cfg(target_os = "macos")]
 #[inline]
 fn prepend_packet_info_header(data: Bytes) -> Bytes {
-    // TODO: Do not copy
+    use crate::constants::PACKET_INFO_HEADER_SIZE;
     use bytes::BufMut;
 
+    // TODO: Do not copy
     let mut packet_data = BytesMut::with_capacity(data.len() + PACKET_INFO_HEADER_SIZE);
     // TODO: Add support for IPv6
     packet_data.put_slice(&[0_u8, 0_u8, 0_u8, 2_u8]);
     packet_data.put(data);
 
     packet_data.into()
+}
+
+#[cfg(target_os = "macos")]
+#[inline]
+fn truncate_packet_info_header(data: BytesMut) -> Bytes {
+    use crate::constants::PACKET_INFO_HEADER_SIZE;
+
+    Bytes::from(data).slice(PACKET_INFO_HEADER_SIZE..)
 }
