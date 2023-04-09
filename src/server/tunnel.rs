@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use crate::auth::Auth;
 use crate::config::{ConnectionConfig, TunnelConfig};
-use crate::interface::{read_from_interface, set_up_interface, write_to_interface};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
-use crate::utils::bind_socket;
+use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
+use crate::utils::socket::bind_socket;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use dashmap::DashMap;

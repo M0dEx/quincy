@@ -1,6 +1,6 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
 use crate::constants::{AUTH_TIMEOUT_GRACE, BINCODE_BUFFER_SIZE};
-use crate::utils::{decode_message, encode_message, ip_addr_to_bytes};
+use crate::utils::serde::{decode_message, encode_message, ip_addr_to_bytes};
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;

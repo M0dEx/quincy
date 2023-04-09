@@ -2,7 +2,10 @@ use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 
 use crate::config::ClientConfig;
 use crate::constants::BINCODE_BUFFER_SIZE;
-use crate::utils::{bind_socket, decode_message, encode_message, ip_addr_from_bytes};
+use crate::utils::{
+    serde::{decode_message, encode_message, ip_addr_from_bytes},
+    socket::bind_socket,
+};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;
@@ -10,7 +13,7 @@ use quinn::{Connection, Endpoint, RecvStream, SendStream};
 
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 
-use crate::interface::{read_from_interface, set_up_interface, write_to_interface};
+use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, ReadHalf, WriteHalf};

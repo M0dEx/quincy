@@ -1,3 +1,5 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use bincode::config::{Configuration, Limit, LittleEndian, Varint};
 use once_cell::sync::Lazy;
 use rand_chacha::rand_core::SeedableRng;
@@ -7,6 +9,8 @@ use tokio::sync::Mutex;
 pub const PACKET_INFO_HEADER_SIZE: usize = 4;
 pub const BINCODE_BUFFER_SIZE: usize = 128;
 pub const AUTH_TIMEOUT_GRACE: u64 = 5;
+pub const IPV4_ADDR_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
+pub const IPV6_ADDR_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
 
 pub static BINCODE_CONFIG: Lazy<Configuration<LittleEndian, Varint, Limit<BINCODE_BUFFER_SIZE>>> =
     Lazy::new(|| bincode::config::standard().with_limit::<BINCODE_BUFFER_SIZE>());

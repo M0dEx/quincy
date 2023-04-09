@@ -13,10 +13,10 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::constants::{
     QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
+use crate::utils::certificates::{load_certificates_from_file, load_private_key_from_file};
 use tracing::{error, warn};
 
 #[derive(Debug, Copy, Clone)]

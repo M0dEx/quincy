@@ -3,7 +3,7 @@ use clap::Parser;
 use quincy::cli::Args;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, FromPath};
-use quincy::utils::enable_tracing;
+use quincy::utils::tracing::enable_tracing;
 use tracing::error;
 
 #[tokio::main]
