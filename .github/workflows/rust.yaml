@@ -9,6 +9,7 @@ jobs:
   test:
     strategy:
       matrix:
+#        unnecessary until macos-latest runs on arm64 arch
 #        os: [ubuntu-latest, macos-latest]
         os: [ubuntu-latest]
         rust: [stable]
@@ -16,17 +17,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+        name: Checkout repository
       - uses: actions-rs/toolchain@v1
+        name: Set up toolchain
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           override: true
       - uses: Swatinem/rust-cache@v1
+        name: Cache toolchain and dependencies
       - uses: actions-rs/cargo@v1
+        name: Build crate
         with:
           command: build
           args: --all-targets
       - uses: actions-rs/cargo@v1
+        name: Test crate
         with:
           command: test
 
@@ -34,18 +40,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        name: Checkout repository
       - uses: actions-rs/toolchain@v1
+        name: Set up toolchain
         with:
           profile: minimal
           toolchain: stable
           override: true
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
+        name: Cache toolchain and dependencies
       - uses: actions-rs/cargo@v1
+        name: Check code with cargo fmt
         with:
           command: fmt
           args: --all -- --check
       - uses: actions-rs/cargo@v1
+        name: Check code with cargo clippy
         with:
           command: clippy
           args: --all-targets -- -D warnings
