@@ -4,22 +4,23 @@ use std::time::Duration;
 
 use crate::auth::Auth;
 use crate::config::{ConnectionConfig, TunnelConfig};
+use crate::interface::{read_from_interface, set_up_interface, write_to_interface};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
 use crate::utils::bind_socket;
 use anyhow::{anyhow, Result};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
-use ipnet::{IpNet, Ipv4Net};
+use ipnet::Ipv4Net;
 use quinn::{Connection, Endpoint};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, info, warn};
+use tun::AsyncDevice;
 
 type SharedReadHalf<T> = Arc<RwLock<ReadHalf<T>>>;
 type SharedWriteHalf<T> = Arc<RwLock<WriteHalf<T>>>;
@@ -29,8 +30,8 @@ type SharedReceiver<T> = Arc<RwLock<UnboundedReceiver<T>>>;
 pub struct QuincyTunnel {
     tun_config: TunnelConfig,
     connection_config: ConnectionConfig,
-    tun_read: SharedReadHalf<Tun>,
-    tun_write: SharedWriteHalf<Tun>,
+    tun_read: SharedReadHalf<AsyncDevice>,
+    tun_write: SharedWriteHalf<AsyncDevice>,
     write_queue_sender: SharedSender<Bytes>,
     write_queue_receiver: SharedReceiver<Bytes>,
     active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
@@ -44,25 +45,16 @@ pub struct QuincyTunnel {
 
 impl QuincyTunnel {
     pub fn new(tunnel_config: TunnelConfig, connection_config: &ConnectionConfig) -> Result<Self> {
-        let tun_interface = TunBuilder::new()
-            .name("")
-            .tap(false)
-            .packet_info(false)
-            .mtu(connection_config.mtu as i32)
-            .up()
-            .address(tunnel_config.address_server)
-            .netmask(tunnel_config.address_mask)
-            .try_build()
-            .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
+        let interface_address =
+            Ipv4Net::with_netmask(tunnel_config.address_server, tunnel_config.address_mask)?.into();
+
+        let interface = set_up_interface(interface_address, connection_config.mtu)?;
 
         let buffer_size = connection_config.mtu as i32;
-        let (tun_read, tun_write) = tokio::io::split(tun_interface);
+        let (tun_read, tun_write) = tokio::io::split(interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let auth = Auth::new(Auth::load_users_file(&tunnel_config.users_file)?);
-        let address_pool = AddressPool::new(IpNet::V4(Ipv4Net::with_netmask(
-            tunnel_config.address_server,
-            tunnel_config.address_mask,
-        )?))?;
+        let address_pool = AddressPool::new(interface_address)?;
 
         Ok(Self {
             tun_config: tunnel_config,
@@ -194,7 +186,7 @@ impl QuincyTunnel {
     }
 
     async fn process_incoming_data(
-        tun_read: Arc<RwLock<ReadHalf<Tun>>>,
+        tun_read: Arc<RwLock<ReadHalf<AsyncDevice>>>,
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         buffer_size: usize,
     ) -> Result<()> {
@@ -202,9 +194,7 @@ impl QuincyTunnel {
 
         debug!("Started incoming tunnel worker");
         loop {
-            let mut buf = BytesMut::with_capacity(buffer_size);
-
-            tun_read.read_buf(&mut buf).await?;
+            let buf = read_from_interface(&mut tun_read, buffer_size).await?;
             debug!(
                 "Read {} bytes from TUN interface: {:?}",
                 buf.len(),
@@ -255,12 +245,12 @@ impl QuincyTunnel {
                 continue;
             }
 
-            connection.send_datagram(buf.into())?;
+            connection.send_datagram(buf)?;
         }
     }
 
     async fn process_outgoing_data(
-        tun_write: Arc<RwLock<WriteHalf<Tun>>>,
+        tun_write: Arc<RwLock<WriteHalf<AsyncDevice>>>,
         write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,
     ) -> Result<()> {
         let mut tun_write = tun_write.write().await;
@@ -268,8 +258,8 @@ impl QuincyTunnel {
 
         debug!("Started outgoing tunnel worker");
         while let Some(buf) = write_queue_receiver.recv().await {
-            tun_write.write_all(&buf).await?;
-            debug!("Sent {} bytes to tunnel", buf.len())
+            debug!("Sent {} bytes to tunnel", buf.len());
+            write_to_interface(&mut tun_write, buf).await?;
         }
 
         Ok(())

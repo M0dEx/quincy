@@ -5,18 +5,19 @@ use crate::constants::BINCODE_BUFFER_SIZE;
 use crate::utils::{bind_socket, decode_message, encode_message, ip_addr_from_bytes};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use ipnet::{IpNet, Ipv4Net};
+use ipnet::IpNet;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 
+use crate::interface::{read_from_interface, set_up_interface, write_to_interface};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, ReadHalf, WriteHalf};
 use tokio::time::sleep;
 use tokio::try_join;
-use tokio_tun::{Tun, TunBuilder};
 use tracing::{debug, info};
+use tun::AsyncDevice;
 
 pub struct QuincyClient {
     client_config: ClientConfig,
@@ -36,20 +37,11 @@ impl QuincyClient {
 
         debug!("Received TUN address: {assigned_address}");
 
-        let tun = TunBuilder::new()
-            .name("")
-            .tap(false)
-            .packet_info(false)
-            .mtu(self.client_config.connection.mtu as i32)
-            .up()
-            .address(assigned_address.addr())
-            .netmask(assigned_address.netmask())
-            .try_build()
-            .map_err(|e| anyhow!("Failed to create a TUN interface: {e}"))?;
+        let interface = set_up_interface(assigned_address, self.client_config.connection.mtu)?;
 
         try_join!(
             self.manage_session(auth_send, auth_receive, session_token),
-            self.relay_packets(connection, tun),
+            self.relay_packets(connection, interface),
         )?;
 
         Ok(())
@@ -114,7 +106,7 @@ impl QuincyClient {
         &self,
         auth_send: &mut SendStream,
         auth_recv: &mut RecvStream,
-    ) -> Result<(Ipv4Net, SessionToken)> {
+    ) -> Result<(IpNet, SessionToken)> {
         let basic_auth = AuthClientMessage::Authentication(
             self.client_config.authentication.username.clone(),
             self.client_config.authentication.password.clone(),
@@ -140,10 +132,7 @@ impl QuincyClient {
                     ip_addr_from_bytes(&netmask_data)?,
                 )?;
 
-                match address {
-                    IpNet::V4(address) => Ok((address, session_token)),
-                    IpNet::V6(_) => todo!("IPv6 TUN addresses are unsupported"),
-                }
+                Ok((address, session_token))
             }
             _ => Err(anyhow!("Authentication failed")),
         }
@@ -178,17 +167,17 @@ impl QuincyClient {
         }
     }
 
-    async fn relay_packets(&self, connection: Connection, interface: Tun) -> Result<()> {
+    async fn relay_packets(&self, connection: Connection, interface: AsyncDevice) -> Result<()> {
         let connection = Arc::new(connection);
         let (read, write) = tokio::io::split(interface);
 
-        try_join!(
-            Self::handle_send(
+        let (_, _) = try_join!(
+            tokio::spawn(Self::handle_send(
                 connection.clone(),
                 read,
                 self.client_config.connection.mtu as usize
-            ),
-            Self::handle_recv(connection.clone(), write)
+            )),
+            tokio::spawn(Self::handle_recv(connection.clone(), write))
         )?;
 
         Ok(())
@@ -196,7 +185,7 @@ impl QuincyClient {
 
     async fn handle_send(
         connection: Arc<Connection>,
-        mut read_interface: ReadHalf<Tun>,
+        mut read_interface: ReadHalf<AsyncDevice>,
         interface_mtu: usize,
     ) -> Result<()> {
         debug!("Started send task");
@@ -213,22 +202,21 @@ impl QuincyClient {
                 ));
             }
 
-            let mut buf = BytesMut::with_capacity(buf_size);
-            read_interface.read_buf(&mut buf).await?;
+            let data = read_from_interface(&mut read_interface, buf_size).await?;
 
             debug!(
                 "Sending {} bytes to {:?}",
-                buf.len(),
+                data.len(),
                 connection.remote_address()
             );
 
-            connection.send_datagram(buf.into())?;
+            connection.send_datagram(data)?;
         }
     }
 
     async fn handle_recv(
         connection: Arc<Connection>,
-        mut write_interface: WriteHalf<Tun>,
+        mut write_interface: WriteHalf<AsyncDevice>,
     ) -> Result<()> {
         debug!("Started recv task");
         loop {
@@ -239,7 +227,7 @@ impl QuincyClient {
                 connection.remote_address()
             );
 
-            write_interface.write_all(&data).await?;
+            write_to_interface(&mut write_interface, data).await?;
         }
     }
 }

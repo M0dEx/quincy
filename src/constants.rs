@@ -4,6 +4,7 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use tokio::sync::Mutex;
 
+pub const PACKET_INFO_HEADER_SIZE: usize = 4;
 pub const BINCODE_BUFFER_SIZE: usize = 128;
 pub const AUTH_TIMEOUT_GRACE: u64 = 5;
 
