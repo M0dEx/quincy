@@ -55,7 +55,7 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
     Ok(())
 }
 
-#[allow(dead_code)]
+#[cfg(target_os = "macos")]
 #[inline]
 fn prepend_packet_info_header(data: Bytes) -> Bytes {
     // TODO: Do not copy
