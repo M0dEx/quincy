@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use quincy::cli::Args;
 use quincy::config::{FromPath, ServerConfig};
 use quincy::server::QuincyServer;
+use quincy::utils::cli::Args;
 use quincy::utils::tracing::enable_tracing;
 use tracing::error;
 
