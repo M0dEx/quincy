@@ -1,6 +1,6 @@
 use crate::constants::PACKET_INFO_HEADER_SIZE;
 use anyhow::Result;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use ipnet::IpNet;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::{AsyncDevice, Configuration};
@@ -59,6 +59,8 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
 #[inline]
 fn prepend_packet_info_header(data: Bytes) -> Bytes {
     // TODO: Do not copy
+    use bytes::BufMut;
+
     let mut packet_data = BytesMut::with_capacity(data.len() + PACKET_INFO_HEADER_SIZE);
     // TODO: Add support for IPv6
     packet_data.put_slice(&[0_u8, 0_u8, 0_u8, 2_u8]);
