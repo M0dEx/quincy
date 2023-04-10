@@ -16,6 +16,7 @@ async fn main() {
     }
 }
 
+/// Runs the Quincy client.
 async fn run_client(args: Args) -> Result<()> {
     let config = ClientConfig::from_path(&args.config_path, &args.env_prefix)?;
     enable_tracing(&config.log.level);

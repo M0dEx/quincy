@@ -19,82 +19,88 @@ use crate::constants::{
 use crate::utils::certificates::{load_certificates_from_file, load_private_key_from_file};
 use tracing::{error, warn};
 
-#[derive(Debug, Copy, Clone)]
-pub enum Mode {
-    Client,
-    Server,
-}
-
-impl From<String> for Mode {
-    fn from(s: String) -> Self {
-        match s.to_ascii_lowercase().as_str() {
-            "server" => Mode::Server,
-            _ => Mode::Client,
-        }
-    }
-}
-
-//
-//  SERVER CONFIG
-//
+/// Represents the configuration for a Quincy server.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ServerConfig {
     tunnel_path: Option<PathBuf>,
+    /// Configuration for the tunnels associated with this server
     pub tunnels: HashMap<String, TunnelConfig>,
+    /// Miscellaneous connection configuration
     pub connection: ConnectionConfig,
+    /// Logging configuration
     pub log: LogConfig,
 }
 
+/// Represents the configuration for a Quincy tunnel.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct TunnelConfig {
+    /// The name of the tunnel
     pub name: String,
+    /// The certificate to use for the tunnel
     pub certificate_file: PathBuf,
+    /// The certificate private key to use for the tunnel
     pub certificate_key_file: PathBuf,
+    /// The address to bind the tunnel to
     #[serde(default = "default_bind_address")]
     pub bind_address: Ipv4Addr,
+    /// The port to bind the tunnel to
     #[serde(default = "default_bind_port")]
     pub bind_port: u16,
-    pub address_server: Ipv4Addr,
+    /// The address of this tunnel
+    pub address_tunnel: Ipv4Addr,
+    /// The address mask for this tunnel
     pub address_mask: Ipv4Addr,
+    /// A path to a file containing a list of users and their password hashes
     pub users_file: PathBuf,
     #[serde(default = "default_auth_timeout")]
+    /// The amount of time in seconds to wait for authentication before closing the connection
     pub auth_timeout: u32,
 }
 
-//
-//  CLIENT CONFIG
-//
+/// Represents the configuration for a Quincy client.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientConfig {
+    /// Connection string to be used to connect to a Quincy server
     pub connection_string: String,
+    /// Authentication configuration
     pub authentication: ClientAuthenticationConfig,
+    /// Miscellaneous connection configuration
     pub connection: ConnectionConfig,
+    /// Logging configuration
     pub log: LogConfig,
 }
 
+/// Represents the configuration for a Quincy client's authentication.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientAuthenticationConfig {
+    /// The username to use for authentication
     pub username: String,
+    /// The password to use for authentication
     pub password: String,
+    /// A list of trusted certificates
     pub trusted_certificates: Vec<PathBuf>,
+    /// The interval at which to send the session token
     #[serde(default = "default_auth_timeout")]
-    pub auth_timeout: u32,
+    pub auth_interval: u32,
 }
 
-//
-//  SHARED CONFIG
-//
+/// Represents miscellaneous connection configuration.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
+    /// The MTU to use for connections and the TUN interface
     pub mtu: u32,
+    /// The size of the send buffer of the socket and Quinn endpoint
     #[serde(default = "default_buffer_size")]
     pub send_buffer_size: u64,
+    /// The size of the receive buffer of the socket and Quinn endpoint
     #[serde(default = "default_buffer_size")]
     pub recv_buffer_size: u64,
 }
 
+/// Represents logging configuration.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct LogConfig {
+    /// The log level to use
     #[serde(default = "default_log_level")]
     pub level: String,
 }
@@ -102,7 +108,8 @@ pub struct LogConfig {
 pub trait ConfigInit<T: DeserializeOwned> {
     /// Initializes the configuration object from the given Figment
     ///
-    /// * `figment` - The Figment to use for initialization
+    /// ### Arguments
+    /// - `figment` - the Figment to use for initialization
     fn init(figment: Figment, _env_prefix: &str) -> Result<T> {
         Ok(figment.extract()?)
     }
@@ -111,8 +118,9 @@ pub trait ConfigInit<T: DeserializeOwned> {
 pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
     /// Creates a configuration object from the given path and ENV prefix
     ///
-    /// * `path` - Path to a configuration file
-    /// * `env_prefix` - ENV prefix to use for overrides
+    /// ### Arguments
+    /// - `path` - a path to the configuration file
+    /// - `env_prefix` - the ENV prefix to use for overrides
     fn from_path(path: &PathBuf, env_prefix: &str) -> Result<T> {
         let figment = Figment::new()
             .merge(Toml::file(path))
@@ -184,6 +192,10 @@ fn default_auth_timeout() -> u32 {
 }
 
 impl ClientConfig {
+    /// Creates Quinn client configuration from this Quincy client configuration.
+    ///
+    /// ### Returns
+    /// - `quinn::ClientConfig` - the Quinn client configuration
     pub fn as_quinn_client_config(&self) -> Result<quinn::ClientConfig> {
         let trusted_certificates: Vec<Certificate> = self
             .authentication
@@ -218,7 +230,7 @@ impl ClientConfig {
         let mut transport_config = TransportConfig::default();
 
         transport_config.max_idle_timeout(Some(
-            VarInt::from_u32(self.authentication.auth_timeout * 2 * 1_000).into(),
+            VarInt::from_u32(self.authentication.auth_interval * 2 * 1_000).into(),
         ));
         transport_config
             .initial_max_udp_payload_size(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
@@ -230,6 +242,13 @@ impl ClientConfig {
 }
 
 impl TunnelConfig {
+    /// Creates Quinn server configuration from this Quincy tunnel configuration.
+    ///
+    /// ### Arguments
+    /// - `connection_config` - the connection configuration to use
+    ///
+    /// ### Returns
+    /// - `quinn::ServerConfig` - the Quinn server configuration
     pub fn as_quinn_server_config(
         &self,
         connection_config: &ConnectionConfig,

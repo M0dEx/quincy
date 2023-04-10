@@ -41,6 +41,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Adds a new user to the users file.
 fn add_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
     let username = prompt_username()?;
 
@@ -59,6 +60,7 @@ fn add_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
     Ok(users)
 }
 
+/// Removes a user from the users file.
 fn remove_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
     let username = prompt_username()?;
 
@@ -71,6 +73,7 @@ fn remove_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
     }
 }
 
+/// Prompts the user for a username.
 fn prompt_username() -> Result<String> {
     let mut username = String::new();
     print!("Enter the username: ");
@@ -80,6 +83,7 @@ fn prompt_username() -> Result<String> {
     Ok(username.trim_end().to_owned())
 }
 
+/// Hashes a password using Argon2.
 fn hash_password(password: String) -> Result<String> {
     let argon = Argon2::default();
     let salt = SaltString::generate(&mut OsRng);

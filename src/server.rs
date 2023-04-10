@@ -12,11 +12,16 @@ pub mod address_pool;
 pub mod connection;
 pub mod tunnel;
 
+/// Represents a Quincy server with multiple underlying Quincy tunnels.
 pub struct QuincyServer {
     active_tunnels: DashMap<String, Arc<RwLock<QuincyTunnel>>>,
 }
 
 impl QuincyServer {
+    /// Creates a new instance of a Quincy server.
+    ///
+    /// ### Arguments
+    /// - `config` - the configuration for the server
     pub async fn new(config: ServerConfig) -> Result<Self> {
         let tunnels = DashMap::new();
 
@@ -31,6 +36,7 @@ impl QuincyServer {
         })
     }
 
+    /// Starts the Quincy server and all of its underlying tunnels.
     pub async fn run(&self) -> Result<()> {
         let mut futures = FuturesUnordered::new();
 

@@ -22,15 +22,21 @@ use tokio::try_join;
 use tracing::{debug, info};
 use tun::AsyncDevice;
 
+/// Represents a Quincy client that connects to a server and relays packets between the server and a TUN interface.
 pub struct QuincyClient {
     client_config: ClientConfig,
 }
 
 impl QuincyClient {
+    /// Creates a new instance of a Quincy client.
+    ///
+    /// ### Arguments
+    /// - `client_config` - the configuration for the client
     pub fn new(client_config: ClientConfig) -> Self {
         Self { client_config }
     }
 
+    /// Connects to the Quincy server and starts the workers for this instance of the Quincy client.
     pub async fn run(&self) -> Result<()> {
         let connection = self.connect_to_server().await?;
 
@@ -50,6 +56,10 @@ impl QuincyClient {
         Ok(())
     }
 
+    /// Connects to the Quincy server.
+    ///
+    /// ### Returns
+    /// - `Connection` - a Quinn connection representing the connection to the Quincy server
     async fn connect_to_server(&self) -> Result<Connection> {
         let quinn_config = self.client_config.as_quinn_client_config()?;
         let endpoint = self.create_quinn_endpoint()?;
@@ -90,6 +100,10 @@ impl QuincyClient {
         Ok(connection)
     }
 
+    /// Creates a Quinn endpoint.
+    ///
+    /// ### Returns
+    /// - `Endpoint` - the Quinn endpoint
     fn create_quinn_endpoint(&self) -> Result<Endpoint> {
         let bind_addr: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
         info!("Local address: {:?}", bind_addr);
@@ -105,6 +119,14 @@ impl QuincyClient {
         Ok(endpoint)
     }
 
+    /// Authenticates with the Quincy server.
+    ///
+    /// ### Arguments
+    /// - `auth_send` - the send stream for the authentication channel
+    /// - `auth_recv` - the receive stream for the authentication channel
+    ///
+    /// ### Returns
+    /// - `IpNet, SessionToken` - the assigned TUN address and the session token
     async fn authenticate(
         &self,
         auth_send: &mut SendStream,
@@ -141,6 +163,12 @@ impl QuincyClient {
         }
     }
 
+    /// Manages the session with the Quincy server.
+    ///
+    /// ### Arguments
+    /// - `auth_send` - the send stream for the authentication channel
+    /// - `auth_recv` - the receive stream for the authentication channel
+    /// - `session_token` - the session token
     async fn manage_session(
         &self,
         mut auth_send: SendStream,
@@ -148,7 +176,7 @@ impl QuincyClient {
         session_token: SessionToken,
     ) -> Result<()> {
         let auth_interval =
-            Duration::from_secs(self.client_config.authentication.auth_timeout as u64);
+            Duration::from_secs(self.client_config.authentication.auth_interval as u64);
 
         let message = AuthClientMessage::SessionToken(session_token);
         let buf = encode_message(message)?;
@@ -170,6 +198,11 @@ impl QuincyClient {
         }
     }
 
+    /// Relays packets between the TUN interface and the Quincy server.
+    ///
+    /// ### Arguments
+    /// - `connection` - a Quinn connection representing the connection to the Quincy server
+    /// - `interface` - the TUN interface
     async fn relay_packets(&self, connection: Connection, interface: AsyncDevice) -> Result<()> {
         let connection = Arc::new(connection);
         let (read, write) = tokio::io::split(interface);
@@ -186,6 +219,12 @@ impl QuincyClient {
         Ok(())
     }
 
+    /// Handles incoming packets from the TUN interface and relays them to the Quincy server.
+    ///
+    /// ### Arguments
+    /// - `connection` - a Quinn connection representing the connection to the Quincy server
+    /// - `read_interface` - the read half of the TUN interface
+    /// - `interface_mtu` - the MTU of the TUN interface
     async fn handle_send(
         connection: Arc<Connection>,
         mut read_interface: ReadHalf<AsyncDevice>,
@@ -217,6 +256,11 @@ impl QuincyClient {
         }
     }
 
+    /// Handles incoming packets from the Quincy server and relays them to the TUN interface.
+    ///
+    /// ### Arguments
+    /// - `connection` - a Quinn connection representing the connection to the Quincy server
+    /// - `write_interface` - the write half of the TUN interface
     async fn handle_recv(
         connection: Arc<Connection>,
         mut write_interface: WriteHalf<AsyncDevice>,

@@ -1,6 +1,10 @@
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
 
+/// Enables tracing for the application.
+///
+/// ### Arguments
+/// - `log_level` - the log level to use
 pub fn enable_tracing(log_level: &str) {
     let registry = tracing_subscriber::Registry::default();
     let fmt_layer = tracing_subscriber::fmt::Layer::new();

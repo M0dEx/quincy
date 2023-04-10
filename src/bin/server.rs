@@ -16,6 +16,7 @@ async fn main() {
     }
 }
 
+/// Runs the Quincy server.
 async fn run_server(args: Args) -> Result<()> {
     let config = ServerConfig::from_path(&args.config_path, &args.env_prefix)?;
     enable_tracing(&config.log.level);

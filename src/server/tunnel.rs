@@ -27,6 +27,7 @@ type SharedWriteHalf<T> = Arc<RwLock<WriteHalf<T>>>;
 type SharedSender<T> = Arc<UnboundedSender<T>>;
 type SharedReceiver<T> = Arc<RwLock<UnboundedReceiver<T>>>;
 
+/// Represents a Quincy tunnel encapsulating Quincy connections and TUN interface IO.
 pub struct QuincyTunnel {
     tun_config: TunnelConfig,
     connection_config: ConnectionConfig,
@@ -44,9 +45,14 @@ pub struct QuincyTunnel {
 }
 
 impl QuincyTunnel {
+    /// Creates a new instance of the Quincy tunnel.
+    ///
+    /// ### Arguments
+    /// - `tunnel_config` - the tunnel configuration
+    /// - `connection_config` - the connection configuration
     pub fn new(tunnel_config: TunnelConfig, connection_config: &ConnectionConfig) -> Result<Self> {
         let interface_address =
-            Ipv4Net::with_netmask(tunnel_config.address_server, tunnel_config.address_mask)?.into();
+            Ipv4Net::with_netmask(tunnel_config.address_tunnel, tunnel_config.address_mask)?.into();
 
         let interface = set_up_interface(interface_address, connection_config.mtu)?;
 
@@ -73,6 +79,7 @@ impl QuincyTunnel {
         })
     }
 
+    /// Starts the workers for this instance of the Quincy tunnel and listens for incoming connections.
     pub async fn run(&mut self) -> Result<()> {
         if self.reader_task.is_some() || self.writer_task.is_some() {
             return Err(anyhow!("There is already a reader job active"));
@@ -106,6 +113,11 @@ impl QuincyTunnel {
         Ok(())
     }
 
+    /// Cleans up stale (failed/timed out) connections.
+    ///
+    /// ### Arguments
+    /// - `connections` - a map of connections and their associated client IP addresses
+    /// - `address_pool` - the address pool being used
     async fn cleanup_connections(
         connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         address_pool: Arc<AddressPool>,
@@ -138,6 +150,10 @@ impl QuincyTunnel {
         }
     }
 
+    /// Handles incoming connections by spawning a new QuincyConnection instance for them.
+    ///
+    /// ### Arguments
+    /// - `connection` - an incoming connection
     async fn handle_incoming_connection(&self, connection: Connection) -> Result<()> {
         debug!(
             "Received incoming connection from {}",
@@ -165,6 +181,10 @@ impl QuincyTunnel {
         Ok(())
     }
 
+    /// Creates a Quinn QUIC endpoint that clients can connect to.
+    ///
+    /// ### Arguments
+    /// - `quinn_config` - the Quinn server configuration to use
     fn create_quinn_endpoint(&self, quinn_config: quinn::ServerConfig) -> Result<Endpoint> {
         let socket = bind_socket(
             SocketAddr::V4(SocketAddrV4::new(
@@ -185,6 +205,12 @@ impl QuincyTunnel {
         Ok(endpoint)
     }
 
+    /// Reads data from the TUN interface and sends it to the appropriate client.
+    ///
+    /// ### Arguments
+    /// - `tun_read` - the read half of the TUN interface
+    /// - `active_connections` - a map of connections and their associated client IP addresses
+    /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
     async fn process_incoming_data(
         tun_read: Arc<RwLock<ReadHalf<AsyncDevice>>>,
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
@@ -249,6 +275,11 @@ impl QuincyTunnel {
         }
     }
 
+    /// Reads data from the QUIC connection and sends it to the TUN interface worker.
+    ///
+    /// ### Arguments
+    /// - `tun_write` - the write half of the TUN interface
+    /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
     async fn process_outgoing_data(
         tun_write: Arc<RwLock<WriteHalf<AsyncDevice>>>,
         write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,

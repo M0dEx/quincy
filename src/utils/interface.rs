@@ -4,6 +4,14 @@ use ipnet::IpNet;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::{AsyncDevice, Configuration};
 
+/// Sets up a new TUN interface.
+///
+/// ### Arguments
+/// - `interface_address` - an address and network mask to be used by the interface
+/// - `mtu` - the MTU of the interface
+///
+/// ### Returns
+/// - `AsyncDevice` - the TUN interface
 pub fn set_up_interface(interface_address: IpNet, mtu: u32) -> Result<AsyncDevice> {
     let mut config = Configuration::default();
 
@@ -24,6 +32,14 @@ pub fn set_up_interface(interface_address: IpNet, mtu: u32) -> Result<AsyncDevic
     Ok(interface)
 }
 
+/// Reads a packet from the TUN interface.
+///
+/// ### Arguments
+/// - `interface` - a read half of the TUN interface
+/// - `buf_size` - the size of the buffer to be used for reading from the TUN interface
+///
+/// ### Returns
+/// - `Bytes` - the packet read from the TUN interface
 #[inline]
 pub async fn read_from_interface(
     interface: &mut ReadHalf<AsyncDevice>,
@@ -41,6 +57,11 @@ pub async fn read_from_interface(
     Ok(data)
 }
 
+/// Writes a packet to the TUN interface.
+///
+/// ### Arguments
+/// - `interface` - a write half of the TUN interface
+/// - `data` - the packet to be written to the TUN interface
 #[inline]
 pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: Bytes) -> Result<()> {
     #[cfg(target_os = "macos")]
@@ -54,6 +75,13 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
     Ok(())
 }
 
+/// Prepends the packet info header to the packet.
+///
+/// ### Arguments
+/// - `data` - the packet to be prepended
+///
+/// ### Returns
+/// - `Bytes` - the prepended packet
 #[cfg(target_os = "macos")]
 #[inline]
 fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
@@ -81,6 +109,13 @@ fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
     Ok(packet_data.into())
 }
 
+/// Truncates the packet info header from the packet.
+///
+/// ### Arguments
+/// - `data` - the packet to be truncated
+///
+/// ### Returns
+/// - `Bytes` - the truncated packet
 #[cfg(target_os = "macos")]
 #[inline]
 fn truncate_packet_info_header(data: BytesMut) -> Bytes {

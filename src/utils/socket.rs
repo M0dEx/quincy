@@ -4,6 +4,15 @@ use ::tracing::warn;
 use anyhow::{Context, Result};
 use socket2::{Domain, Protocol, Socket, Type};
 
+/// Binds a UDP socket to the given address and sets the send and receive buffer sizes.
+///
+/// ### Arguments
+/// - `addr` - the address to bind the socket to
+/// - `send_buffer_size` - the size of the send buffer
+/// - `recv_buffer_size` - the size of the receive buffer
+///
+/// ### Returns
+/// - `std::net::UdpSocket` - the bound socket
 pub fn bind_socket(
     addr: SocketAddr,
     send_buffer_size: usize,
