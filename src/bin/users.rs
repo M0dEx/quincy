@@ -3,38 +3,84 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use clap::Parser;
+use dashmap::DashMap;
 use quincy::auth::user::User;
 use quincy::auth::Auth;
 use rpassword::prompt_password;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::exit;
 
 #[derive(Parser)]
 #[command(name = "quincy")]
 pub struct Args {
-    #[arg()]
+    #[arg(short, long, group = "mode")]
+    pub add: bool,
+    #[arg(short, long, group = "mode")]
+    pub delete: bool,
+    #[arg(requires = "mode")]
     pub users_file_path: PathBuf,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut username = String::new();
-    print!("Enter the username: ");
-    std::io::stdout().flush()?;
-    std::io::stdin().read_line(&mut username)?;
-    username = username.trim_end().to_owned();
+    let mut users = Auth::load_users_file(&args.users_file_path)?;
+
+    users = match (args.add, args.delete) {
+        (true, false) => add_user(users)?,
+        (false, true) => remove_user(users)?,
+        _ => {
+            eprintln!("Either add xor delete switch must be specified");
+            exit(1);
+        }
+    };
+
+    Auth::save_users_file(&args.users_file_path, users)?;
+
+    Ok(())
+}
+
+fn add_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
+    let username = prompt_username()?;
 
     let password = prompt_password(format!("Enter password for user '{username}': "))?;
     let password_again = prompt_password(format!("Confirm password for user '{username}': "))?;
 
     if password != password_again {
         eprintln!("Passwords do not match");
-        return Ok(());
+        exit(1);
     }
 
-    let users = Auth::load_users_file(&args.users_file_path)?;
+    let password_hash = hash_password(password)?;
 
+    users.insert(username.clone(), User::new(username, password_hash));
+
+    Ok(users)
+}
+
+fn remove_user(users: DashMap<String, User>) -> Result<DashMap<String, User>> {
+    let username = prompt_username()?;
+
+    match users.remove(&username) {
+        Some(_) => Ok(users),
+        None => {
+            eprintln!("User does not exist: {username}");
+            exit(1);
+        }
+    }
+}
+
+fn prompt_username() -> Result<String> {
+    let mut username = String::new();
+    print!("Enter the username: ");
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut username)?;
+
+    Ok(username.trim_end().to_owned())
+}
+
+fn hash_password(password: String) -> Result<String> {
     let argon = Argon2::default();
     let salt = SaltString::generate(&mut OsRng);
 
@@ -42,12 +88,5 @@ fn main() -> Result<()> {
         .hash_password(password.as_bytes(), salt.as_salt())
         .map_err(|e| anyhow!("Failed to hash password: {e}"))?;
 
-    users.insert(
-        username.clone(),
-        User::new(username, password_hash.to_string()),
-    );
-
-    Auth::save_users_file(&args.users_file_path, users)?;
-
-    Ok(())
+    Ok(password_hash.to_string())
 }
