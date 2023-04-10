@@ -1,6 +1,14 @@
 [package]
 name = "quincy"
 version = "0.1.0"
+authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
+license = "MIT"
+description = "QUIC-based VPN"
+readme = "README.md"
+homepage = "https://github.com/M0dEx/quincy"
+repository = "https://github.com/M0dEx/quincy"
+keywords = ["vpn", "quic"]
+categories = ["command-line-utilities", "network-programming"]
 edition = "2021"
 
 [lib]
