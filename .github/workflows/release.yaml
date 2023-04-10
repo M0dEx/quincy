@@ -1,0 +1,31 @@
+name: Publish release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  release:
+    strategy:
+      matrix:
+#        unnecessary until macos-latest runs on arm64 arch
+#        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
+        rust: [stable, nightly]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout repository
+      - uses: actions-rs/toolchain@v1
+        name: Set up toolchain
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - uses: Swatinem/rust-cache@v1
+        name: Cache toolchain and dependencies
+      - uses: katyo/publish-crates@v2
+        name: Publish crate
+        with:
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
