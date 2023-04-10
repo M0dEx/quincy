@@ -16,6 +16,11 @@ When all is set up, multiple tasks are spawned (on both the client and the serve
 
 These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/tokio) runtime for added efficiency and throughput.
 
+## Supported platforms
+- [ ] Windows
+- [X] Linux
+- [X] MacOS
+
 ## Usage
 Quincy is split into 3 binaries: 
 - `client`: The VPN client
