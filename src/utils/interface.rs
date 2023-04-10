@@ -44,7 +44,7 @@ pub async fn read_from_interface(
 #[inline]
 pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: Bytes) -> Result<()> {
     #[cfg(target_os = "macos")]
-    let packet_data = prepend_packet_info_header(data);
+    let packet_data = prepend_packet_info_header(data)?;
 
     #[cfg(not(target_os = "macos"))]
     let packet_data = data;
@@ -56,17 +56,29 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
 
 #[cfg(target_os = "macos")]
 #[inline]
-fn prepend_packet_info_header(data: Bytes) -> Bytes {
+fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
     use crate::constants::PACKET_INFO_HEADER_SIZE;
+    use anyhow::anyhow;
     use bytes::BufMut;
+    use etherparse::IpHeader;
+    use etherparse::PacketHeaders;
+
+    let packet_headers = PacketHeaders::from_ip_slice(&data)?;
+    let ip_header = packet_headers
+        .ip
+        .ok_or_else(|| anyhow!("Received packet with invalid IP header"))?;
+
+    let mut packet_data = BytesMut::with_capacity(data.len() + PACKET_INFO_HEADER_SIZE);
+    match ip_header {
+        IpHeader::Version4(_, _) => packet_data.put_slice(&[0_u8, 0_u8, 0_u8, libc::AF_INET as u8]),
+        IpHeader::Version6(_, _) => {
+            packet_data.put_slice(&[0_u8, 0_u8, 0_u8, libc::AF_INET6 as u8])
+        }
+    };
 
     // TODO: Do not copy
-    let mut packet_data = BytesMut::with_capacity(data.len() + PACKET_INFO_HEADER_SIZE);
-    // TODO: Add support for IPv6
-    packet_data.put_slice(&[0_u8, 0_u8, 0_u8, 2_u8]);
     packet_data.put(data);
-
-    packet_data.into()
+    Ok(packet_data.into())
 }
 
 #[cfg(target_os = "macos")]
