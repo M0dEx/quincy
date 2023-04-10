@@ -6,14 +6,7 @@ on:
 
 jobs:
   release:
-    strategy:
-      matrix:
-#        unnecessary until macos-latest runs on arm64 arch
-#        os: [ubuntu-latest, macos-latest]
-        os: [ubuntu-latest]
-        rust: [stable, nightly]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
         name: Checkout repository
@@ -21,7 +14,7 @@ jobs:
         name: Set up toolchain
         with:
           profile: minimal
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           override: true
       - uses: Swatinem/rust-cache@v1
         name: Cache toolchain and dependencies
