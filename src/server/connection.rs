@@ -27,8 +27,8 @@ pub struct QuincyConnection {
     auth_state: SharedAuthState,
     auth_timeout: u32,
     tun_queue: Arc<UnboundedSender<Bytes>>,
-    authentication_worker: Option<JoinHandle<Result<()>>>,
-    connection_worker: Option<JoinHandle<Result<()>>>,
+    authentication_task: Option<JoinHandle<Result<()>>>,
+    connection_task: Option<JoinHandle<Result<()>>>,
 }
 
 impl QuincyConnection {
@@ -53,46 +53,27 @@ impl QuincyConnection {
             auth_state: Arc::new(RwLock::new(AuthState::Unauthenticated)),
             auth_timeout,
             tun_queue,
-            authentication_worker: None,
-            connection_worker: None,
+            authentication_task: None,
+            connection_task: None,
         }
     }
 
-    /// Checks whether the workers for this connection are still running.
-    ///
-    /// ### Returns
-    /// - `true` if the authentication and connection workers are running, `false` if not
-    pub fn is_ok(&self) -> bool {
-        let authentication_worker_ok = self
-            .authentication_worker
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        let connection_worker_ok = self
-            .connection_worker
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        authentication_worker_ok && connection_worker_ok
-    }
-
-    /// Start the authentication and connection workers for this connection.
-    pub fn start_worker(&mut self) -> Result<()> {
-        if self.authentication_worker.is_some() || self.connection_worker.is_some() {
-            return Err(anyhow!("Workers have been already started"));
+    /// Starts the tasks for this instance of Quincy connection.
+    pub fn start(&mut self) -> Result<()> {
+        if self.is_ok() {
+            return Err(anyhow!(
+                "This instance of Quincy connection is already running"
+            ));
         }
 
-        self.authentication_worker = Some(tokio::spawn(Self::process_authentication_stream(
+        self.authentication_task = Some(tokio::spawn(Self::process_authentication_stream(
             self.connection.clone(),
             self.auth.clone(),
             self.auth_state.clone(),
             self.auth_timeout,
             self.client_address,
         )));
-
-        self.connection_worker = Some(tokio::spawn(Self::process_incoming_data(
+        self.connection_task = Some(tokio::spawn(Self::process_incoming_data(
             self.connection.clone(),
             self.tun_queue.clone(),
         )));
@@ -100,18 +81,38 @@ impl QuincyConnection {
         Ok(())
     }
 
-    /// Stops the authentication and connection workers for this connection.
-    pub async fn stop_workers(&mut self) -> Result<()> {
-        self.authentication_worker
+    /// Stops the tasks for this instance of Quincy connection.
+    pub async fn stop(&mut self) -> Result<()> {
+        self.authentication_task
             .take()
-            .ok_or_else(|| anyhow!("Authentication worker does not exist"))?
+            .ok_or_else(|| anyhow!("Authentication task does not exist"))?
             .abort();
-        self.connection_worker
+        self.connection_task
             .take()
-            .ok_or_else(|| anyhow!("Connection worker does not exist"))?
+            .ok_or_else(|| anyhow!("Connection task does not exist"))?
             .abort();
 
         Ok(())
+    }
+
+    /// Checks whether this instance of Quincy connection is running.
+    ///
+    /// ### Returns
+    /// - `true` if all connection tasks are running, `false` if not
+    pub fn is_ok(&self) -> bool {
+        let authentication_task_ok = self
+            .authentication_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        let connection_task_ok = self
+            .connection_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        authentication_task_ok && connection_task_ok
     }
 
     delegate! {

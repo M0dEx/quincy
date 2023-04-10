@@ -1,12 +1,11 @@
-use std::sync::Arc;
+use std::time::Duration;
 
 use crate::config::ServerConfig;
 use crate::server::tunnel::QuincyTunnel;
 use anyhow::Result;
 use dashmap::DashMap;
-use futures_util::stream::FuturesUnordered;
-use futures_util::StreamExt;
-use tokio::sync::RwLock;
+use tokio::time::sleep;
+use tracing::error;
 
 pub mod address_pool;
 pub mod connection;
@@ -14,7 +13,7 @@ pub mod tunnel;
 
 /// Represents a Quincy server with multiple underlying Quincy tunnels.
 pub struct QuincyServer {
-    active_tunnels: DashMap<String, Arc<RwLock<QuincyTunnel>>>,
+    active_tunnels: DashMap<String, QuincyTunnel>,
 }
 
 impl QuincyServer {
@@ -28,7 +27,7 @@ impl QuincyServer {
         for (name, tunnel_config) in config.tunnels.iter() {
             let tunnel = QuincyTunnel::new(tunnel_config.clone(), &config.connection)?;
 
-            tunnels.insert(name.clone(), Arc::new(RwLock::new(tunnel)));
+            tunnels.insert(name.clone(), tunnel);
         }
 
         Ok(Self {
@@ -38,20 +37,27 @@ impl QuincyServer {
 
     /// Starts the Quincy server and all of its underlying tunnels.
     pub async fn run(&self) -> Result<()> {
-        let mut futures = FuturesUnordered::new();
+        for mut entry in self.active_tunnels.iter_mut() {
+            let tunnel = entry.value_mut();
 
-        for entry in self.active_tunnels.iter() {
-            let tunnel = entry.value().clone();
-
-            futures.push(tokio::spawn(
-                async move { tunnel.write().await.run().await },
-            ));
+            tunnel.start().await?;
         }
 
-        while let Some(tun_run) = futures.next().await {
-            tun_run??;
-        }
+        loop {
+            for mut entry in self.active_tunnels.iter_mut() {
+                let tunnel_name = entry.key().to_owned();
+                let tunnel = entry.value_mut();
 
-        Ok(())
+                if tunnel.is_ok() {
+                    continue;
+                }
+
+                error!("Tunnel '{tunnel_name}' has crashed. Attempting to restart...");
+                tunnel.stop().await?;
+                tunnel.start().await?;
+            }
+
+            sleep(Duration::from_secs(1)).await;
+        }
     }
 }

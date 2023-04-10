@@ -97,6 +97,13 @@ impl Auth {
         Ok(user.check_session_validity(session_token))
     }
 
+    /// Resets all user sessions.
+    pub fn reset(&self) {
+        for entry in self.users.iter() {
+            entry.value().reset();
+        }
+    }
+
     /// Loads the contents of a file with users and their passwords hashes into a map.
     ///
     /// ### Arguments

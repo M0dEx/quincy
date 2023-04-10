@@ -64,6 +64,11 @@ impl User {
 
         session_token
     }
+
+    /// Resets the user's active sessions.
+    pub fn reset(&self) {
+        self.session_tokens.clear();
+    }
 }
 
 impl TryFrom<String> for User {

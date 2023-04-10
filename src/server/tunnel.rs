@@ -13,7 +13,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
 use ipnet::Ipv4Net;
-use quinn::{Connection, Endpoint};
+use quinn::Endpoint;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
@@ -22,6 +22,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use tun::AsyncDevice;
 
+type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
 type SharedReadHalf<T> = Arc<RwLock<ReadHalf<T>>>;
 type SharedWriteHalf<T> = Arc<RwLock<WriteHalf<T>>>;
 type SharedSender<T> = Arc<UnboundedSender<T>>;
@@ -35,10 +36,11 @@ pub struct QuincyTunnel {
     tun_write: SharedWriteHalf<AsyncDevice>,
     write_queue_sender: SharedSender<Bytes>,
     write_queue_receiver: SharedReceiver<Bytes>,
-    active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+    active_connections: SharedConnections,
     buffer_size: usize,
     reader_task: Option<JoinHandle<Result<()>>>,
     writer_task: Option<JoinHandle<Result<()>>>,
+    connection_task: Option<JoinHandle<Result<()>>>,
     cleanup_task: Option<JoinHandle<Result<()>>>,
     auth: Arc<Auth>,
     address_pool: Arc<AddressPool>,
@@ -73,17 +75,23 @@ impl QuincyTunnel {
             buffer_size: buffer_size as usize,
             reader_task: None,
             writer_task: None,
+            connection_task: None,
             cleanup_task: None,
             auth: Arc::new(auth),
             address_pool: Arc::new(address_pool),
         })
     }
 
-    /// Starts the workers for this instance of the Quincy tunnel and listens for incoming connections.
-    pub async fn run(&mut self) -> Result<()> {
-        if self.reader_task.is_some() || self.writer_task.is_some() {
-            return Err(anyhow!("There is already a reader job active"));
+    /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
+    pub async fn start(&mut self) -> Result<()> {
+        if self.is_ok() {
+            return Err(anyhow!("This instance of Quincy tunnel is already running"));
         }
+
+        let quinn_configuration = self
+            .tun_config
+            .as_quinn_server_config(&self.connection_config)?;
+        let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
 
         self.reader_task = Some(tokio::spawn(Self::process_incoming_data(
             self.tun_read.clone(),
@@ -98,19 +106,74 @@ impl QuincyTunnel {
             self.active_connections.clone(),
             self.address_pool.clone(),
         )));
-
-        let quinn_configuration = self
-            .tun_config
-            .as_quinn_server_config(&self.connection_config)?;
-        let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
-
-        info!("Listening on {}", endpoint.local_addr().unwrap());
-
-        while let Some(handshake) = endpoint.accept().await {
-            self.handle_incoming_connection(handshake.await?).await?;
-        }
+        self.connection_task = Some(tokio::spawn(Self::handle_incoming_connections(
+            self.active_connections.clone(),
+            self.address_pool.clone(),
+            self.write_queue_sender.clone(),
+            self.auth.clone(),
+            self.tun_config.auth_timeout,
+            endpoint,
+        )));
 
         Ok(())
+    }
+
+    /// Stops the tasks for this instance of Quincy tunnel.
+    pub async fn stop(&mut self) -> Result<()> {
+        self.reader_task
+            .take()
+            .ok_or_else(|| anyhow!("Reader task does not exist"))?
+            .abort();
+        self.writer_task
+            .take()
+            .ok_or_else(|| anyhow!("Writer task does not exist"))?
+            .abort();
+        self.connection_task
+            .take()
+            .ok_or_else(|| anyhow!("Connection task does not exist"))?
+            .abort();
+        self.cleanup_task
+            .take()
+            .ok_or_else(|| anyhow!("Cleanup task does not exist"))?
+            .abort();
+
+        self.active_connections.clear();
+        self.auth.reset();
+        self.address_pool.reset();
+
+        Ok(())
+    }
+
+    /// Checks whether this instance of Quincy tunnel is running.
+    ///
+    /// ### Returns
+    /// - `true` if all tunnel tasks are running, `false` if not
+    pub fn is_ok(&self) -> bool {
+        let reader_task_ok = self
+            .connection_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        let writer_task_ok = self
+            .connection_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        let connection_task_ok = self
+            .connection_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        let cleanup_task_ok = self
+            .connection_task
+            .as_ref()
+            .map(|worker| !worker.is_finished())
+            .unwrap_or(false);
+
+        reader_task_ok && writer_task_ok && connection_task_ok && cleanup_task_ok
     }
 
     /// Cleans up stale (failed/timed out) connections.
@@ -119,11 +182,12 @@ impl QuincyTunnel {
     /// - `connections` - a map of connections and their associated client IP addresses
     /// - `address_pool` - the address pool being used
     async fn cleanup_connections(
-        connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+        connections: SharedConnections,
         address_pool: Arc<AddressPool>,
     ) -> Result<()> {
         let cleanup_interval = Duration::from_secs(1);
 
+        debug!("Started connection cleanup worker");
         loop {
             let mut stale_connections = vec![];
 
@@ -142,7 +206,7 @@ impl QuincyTunnel {
                     .remove(&connection_addr)
                     .expect("Stale connection exists");
 
-                connection.stop_workers().await?;
+                connection.stop().await?;
                 address_pool.release_address(connection_addr);
             }
 
@@ -153,30 +217,47 @@ impl QuincyTunnel {
     /// Handles incoming connections by spawning a new QuincyConnection instance for them.
     ///
     /// ### Arguments
-    /// - `connection` - an incoming connection
-    async fn handle_incoming_connection(&self, connection: Connection) -> Result<()> {
-        debug!(
-            "Received incoming connection from {}",
-            connection.remote_address().ip()
+    /// - `active_connections` - a map of connections and their associated client IP addresses
+    /// - `address_pool` - the address pool being used
+    /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
+    /// - `auth` - the authentication module
+    /// - `auth_timeout` - the configured auth timeout
+    /// - `endpoint` - the QUIC endpoint
+    async fn handle_incoming_connections(
+        active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+        address_pool: Arc<AddressPool>,
+        write_queue_sender: SharedSender<Bytes>,
+        auth: Arc<Auth>,
+        auth_timeout: u32,
+        endpoint: Endpoint,
+    ) -> Result<()> {
+        info!(
+            "Listening on {}",
+            endpoint.local_addr().expect("Endpoint has a local address")
         );
 
-        let client_tun_ip = self
-            .address_pool
-            .next_available_address()
-            .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
+        while let Some(handshake) = endpoint.accept().await {
+            debug!(
+                "Received incoming connection from {}",
+                handshake.remote_address().ip()
+            );
 
-        let mut connection = QuincyConnection::new(
-            connection,
-            self.write_queue_sender.clone(),
-            self.auth.clone(),
-            self.tun_config.auth_timeout,
-            client_tun_ip,
-        );
-        connection.start_worker()?;
-        debug!("Started connection worker for client {client_tun_ip}");
+            let client_tun_ip = address_pool
+                .next_available_address()
+                .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
 
-        self.active_connections
-            .insert(client_tun_ip.addr(), connection);
+            let mut connection = QuincyConnection::new(
+                handshake.await?,
+                write_queue_sender.clone(),
+                auth.clone(),
+                auth_timeout,
+                client_tun_ip,
+            );
+            connection.start()?;
+            debug!("Started connection worker for client {client_tun_ip}");
+
+            active_connections.insert(client_tun_ip.addr(), connection);
+        }
 
         Ok(())
     }

@@ -50,6 +50,14 @@ impl AddressPool {
     pub fn release_address(&self, address: IpAddr) {
         self.used_addresses.remove(&address);
     }
+
+    /// Resets the address pool by releasing all addresses.
+    pub fn reset(&self) {
+        self.used_addresses.clear();
+        self.used_addresses.insert(self.network.network());
+        self.used_addresses.insert(self.network.addr());
+        self.used_addresses.insert(self.network.broadcast());
+    }
 }
 
 #[cfg(test)]
