@@ -1,13 +1,22 @@
+# Section representing tunnel configuration
 [tunnels.tun0]
+# Name of the tunnel (currently not used as the name of the interface)
 name = "tun0"
+# Path to the certificate used for TLS
 certificate_file = "examples/cert/server_cert.pem"
+# Path to the certificate key used for TLS
 certificate_key_file = "examples/cert/server_key.pem"
-address_server = "10.0.0.1"
+# The address of the tunnel endpoint and base address of the address pool available to clients
+address_tunnel = "10.0.0.1"
+# Netmask used to generate the address pool available to clients
 address_mask = "255.255.255.0"
+# Path to the file containing user credentials
 users_file = "examples/users"
 
 [connection]
+# The MTU used by the QUIC tunnel and the spawned TUN interface
 mtu = 1400
 
 [log]
+# The log level
 level = "info"
