@@ -26,6 +26,17 @@ These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/toki
 - [X] Linux
 - [X] MacOS
 
+## Building from sources
+As Quincy does not rely upon any non-Rust libraries, the build process is incredibly simple:
+```bash
+$ cargo build
+```
+If you additionally want to build Quincy in release mode with optimizations, add the `--release` switch:
+```bash
+$ cargo build --release
+```
+The resulting binaries can be found in the `target/debug` and `target/release` directories.
+
 ## Usage
 Quincy is split into 3 binaries: 
 - `client`: The VPN client
