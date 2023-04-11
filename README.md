@@ -1,4 +1,9 @@
 # Quincy
+[![Crates.io](https://img.shields.io/crates/v/quincy.svg)](https://crates.io/crates/quincy)
+[![Documentation](https://docs.rs/quincy/badge.svg)](https://docs.rs/quincy/)
+[![Build status](https://github.com/M0dEx/quincy/workflows/CI/badge.svg)](https://github.com/M0dEx/quincy/actions?query=workflow%3ACI)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
+
 Quincy is a VPN client and server implementation using the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol.
 
 ## Design
