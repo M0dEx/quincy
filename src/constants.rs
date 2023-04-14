@@ -6,9 +6,6 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use tokio::sync::Mutex;
 
-/// Represents the size of the packet info header on UNIX systems.
-pub const PACKET_INFO_HEADER_SIZE: usize = 4;
-
 /// Represents the size of the buffer used for bincode (de)serialization.
 pub const BINCODE_BUFFER_SIZE: usize = 128;
 
@@ -20,6 +17,18 @@ pub const IPV4_ADDR_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
 
 /// Represents the size of an `Ipv6Addr` address.
 pub const IPV6_ADDR_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
+
+/// Represents the size of the packet info header on UNIX systems.
+#[cfg(target_os = "macos")]
+pub const DARWIN_PI_HEADER_LENGTH: usize = 4;
+
+/// Represents MacOS packet info header for IPv4
+#[cfg(target_os = "macos")]
+pub const DARWIN_PI_HEADER_IPV4: [u8; 4] = [0_u8, 0_u8, 0_u8, libc::AF_INET as u8];
+
+/// Represents MacOS packet info header for IPv6
+#[cfg(target_os = "macos")]
+pub const DARWIN_PI_HEADER_IPV6: [u8; 4] = [0_u8, 0_u8, 0_u8, libc::AF_INET6 as u8];
 
 /// Represents the BINCODE configuration used for (de)serialization.
 pub static BINCODE_CONFIG: Lazy<Configuration<LittleEndian, Varint, Limit<BINCODE_BUFFER_SIZE>>> =

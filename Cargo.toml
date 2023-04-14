@@ -16,7 +16,7 @@ name = "quincy"
 
 [dependencies]
 # Quinn
-quinn = { version = "^0.9", features = ["runtime-tokio"] }
+quinn = "^0.9"
 
 # Interfaces and networking
 tun = { version = "^0.5", features = ["async"] }
