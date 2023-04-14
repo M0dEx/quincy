@@ -38,8 +38,8 @@ pub struct QuincyTunnel {
     write_queue_receiver: SharedReceiver<Bytes>,
     active_connections: SharedConnections,
     buffer_size: usize,
-    reader_task: Option<JoinHandle<Result<()>>>,
-    writer_task: Option<JoinHandle<Result<()>>>,
+    outbound_task: Option<JoinHandle<Result<()>>>,
+    inbound_task: Option<JoinHandle<Result<()>>>,
     connection_task: Option<JoinHandle<Result<()>>>,
     cleanup_task: Option<JoinHandle<Result<()>>>,
     auth: Arc<Auth>,
@@ -73,8 +73,8 @@ impl QuincyTunnel {
             write_queue_receiver: Arc::new(RwLock::new(receiver)),
             active_connections: Arc::new(DashMap::new()),
             buffer_size: buffer_size as usize,
-            reader_task: None,
-            writer_task: None,
+            outbound_task: None,
+            inbound_task: None,
             connection_task: None,
             cleanup_task: None,
             auth: Arc::new(auth),
@@ -93,12 +93,12 @@ impl QuincyTunnel {
             .as_quinn_server_config(&self.connection_config)?;
         let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
 
-        self.reader_task = Some(tokio::spawn(Self::process_incoming_data(
+        self.outbound_task = Some(tokio::spawn(Self::process_outbound_traffic(
             self.tun_read.clone(),
             self.active_connections.clone(),
             self.buffer_size,
         )));
-        self.writer_task = Some(tokio::spawn(Self::process_outgoing_data(
+        self.inbound_task = Some(tokio::spawn(Self::process_inbound_traffic(
             self.tun_write.clone(),
             self.write_queue_receiver.clone(),
         )));
@@ -120,11 +120,11 @@ impl QuincyTunnel {
 
     /// Stops the tasks for this instance of Quincy tunnel.
     pub async fn stop(&mut self) -> Result<()> {
-        self.reader_task
+        self.outbound_task
             .take()
             .ok_or_else(|| anyhow!("Reader task does not exist"))?
             .abort();
-        self.writer_task
+        self.inbound_task
             .take()
             .ok_or_else(|| anyhow!("Writer task does not exist"))?
             .abort();
@@ -292,7 +292,7 @@ impl QuincyTunnel {
     /// - `tun_read` - the read half of the TUN interface
     /// - `active_connections` - a map of connections and their associated client IP addresses
     /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
-    async fn process_incoming_data(
+    async fn process_outbound_traffic(
         tun_read: Arc<RwLock<ReadHalf<AsyncDevice>>>,
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         buffer_size: usize,
@@ -302,11 +302,6 @@ impl QuincyTunnel {
         debug!("Started incoming tunnel worker");
         loop {
             let buf = read_from_interface(&mut tun_read, buffer_size).await?;
-            debug!(
-                "Read {} bytes from TUN interface: {:?}",
-                buf.len(),
-                buf.iter().map(|byte| *byte as u32).collect::<Vec<u32>>()
-            );
 
             let headers = match PacketHeaders::from_ip_slice(&buf) {
                 Ok(headers) => headers,
@@ -315,7 +310,7 @@ impl QuincyTunnel {
                     continue;
                 }
             };
-            debug!("Packet header: {:?}", headers);
+
             let ip_header = match headers.ip {
                 Some(ip_header) => ip_header,
                 None => {
@@ -361,7 +356,7 @@ impl QuincyTunnel {
     /// ### Arguments
     /// - `tun_write` - the write half of the TUN interface
     /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
-    async fn process_outgoing_data(
+    async fn process_inbound_traffic(
         tun_write: Arc<RwLock<WriteHalf<AsyncDevice>>>,
         write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,
     ) -> Result<()> {

@@ -207,14 +207,17 @@ impl QuincyClient {
         let connection = Arc::new(connection);
         let (read, write) = tokio::io::split(interface);
 
-        let (_, _) = try_join!(
-            tokio::spawn(Self::handle_send(
+        let (outbound_task, inbound_task) = try_join!(
+            tokio::spawn(Self::process_outbound_traffic(
                 connection.clone(),
                 read,
                 self.client_config.connection.mtu as usize
             )),
-            tokio::spawn(Self::handle_recv(connection.clone(), write))
+            tokio::spawn(Self::process_inbound_traffic(connection.clone(), write))
         )?;
+
+        inbound_task?;
+        outbound_task?;
 
         Ok(())
     }
@@ -225,7 +228,7 @@ impl QuincyClient {
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
     /// - `read_interface` - the read half of the TUN interface
     /// - `interface_mtu` - the MTU of the TUN interface
-    async fn handle_send(
+    async fn process_outbound_traffic(
         connection: Arc<Connection>,
         mut read_interface: ReadHalf<AsyncDevice>,
         interface_mtu: usize,
@@ -261,7 +264,7 @@ impl QuincyClient {
     /// ### Arguments
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
     /// - `write_interface` - the write half of the TUN interface
-    async fn handle_recv(
+    async fn process_inbound_traffic(
         connection: Arc<Connection>,
         mut write_interface: WriteHalf<AsyncDevice>,
     ) -> Result<()> {
