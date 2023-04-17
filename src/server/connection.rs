@@ -1,10 +1,12 @@
 use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
 use crate::constants::{AUTH_TIMEOUT_GRACE, BINCODE_BUFFER_SIZE};
 use crate::utils::serde::{decode_message, encode_message, ip_addr_to_bytes};
+use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use delegate::delegate;
 use ipnet::IpNet;
+
 use quinn::SendDatagramError;
 use quinn::{Connection, VarInt};
 use std::net::SocketAddr;
@@ -83,14 +85,32 @@ impl QuincyConnection {
 
     /// Stops the tasks for this instance of Quincy connection.
     pub async fn stop(&mut self) -> Result<()> {
-        self.authentication_task
-            .take()
-            .ok_or_else(|| anyhow!("Authentication task does not exist"))?
-            .abort();
-        self.connection_task
-            .take()
-            .ok_or_else(|| anyhow!("Connection task does not exist"))?
-            .abort();
+        let timeout = Duration::from_secs(1);
+
+        let authentication_res = join_or_abort_task(
+            self.authentication_task
+                .take()
+                .ok_or_else(|| anyhow!("Authentication task does not exist"))?,
+            timeout,
+        )
+        .await;
+
+        let connection_res = join_or_abort_task(
+            self.connection_task
+                .take()
+                .ok_or_else(|| anyhow!("Connection task does not exist"))?,
+            timeout,
+        )
+        .await;
+
+        for res in vec![authentication_res, connection_res]
+            .into_iter()
+            .flatten()
+        {
+            if let Err(e) = res {
+                error!("An error occurred in Quincy connection: {e}");
+            }
+        }
 
         Ok(())
     }

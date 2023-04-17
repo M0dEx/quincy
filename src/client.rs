@@ -50,7 +50,11 @@ impl QuincyClient {
 
         try_join!(
             self.manage_session(auth_send, auth_receive, session_token),
-            self.relay_packets(connection, interface),
+            self.relay_packets(
+                connection,
+                interface,
+                self.client_config.connection.mtu as usize
+            ),
         )?;
 
         Ok(())
@@ -203,7 +207,12 @@ impl QuincyClient {
     /// ### Arguments
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
     /// - `interface` - the TUN interface
-    async fn relay_packets(&self, connection: Connection, interface: AsyncDevice) -> Result<()> {
+    async fn relay_packets(
+        &self,
+        connection: Connection,
+        interface: AsyncDevice,
+        interface_mtu: usize,
+    ) -> Result<()> {
         let connection = Arc::new(connection);
         let (read, write) = tokio::io::split(interface);
 
@@ -211,9 +220,13 @@ impl QuincyClient {
             tokio::spawn(Self::process_outbound_traffic(
                 connection.clone(),
                 read,
-                self.client_config.connection.mtu as usize
+                interface_mtu
             )),
-            tokio::spawn(Self::process_inbound_traffic(connection.clone(), write))
+            tokio::spawn(Self::process_inbound_traffic(
+                connection.clone(),
+                write,
+                interface_mtu
+            )),
         )?;
 
         inbound_task?;
@@ -235,19 +248,17 @@ impl QuincyClient {
     ) -> Result<()> {
         debug!("Started send task");
         loop {
-            let buf_size = connection.max_datagram_size().ok_or_else(|| {
-                anyhow!(
-                    "The other side of the connection is refusing to provide a max datagram size"
-                )
-            })?;
+            let quinn_mtu = connection
+                .max_datagram_size()
+                .ok_or_else(|| anyhow!("The Quincy server does not support datagram transfer"))?;
 
-            if interface_mtu > buf_size {
+            if interface_mtu > quinn_mtu {
                 return Err(anyhow!(
-                    "Interface MTU ({interface_mtu}) is higher than QUIC connection MTU ({buf_size})"
+                    "Interface MTU ({interface_mtu}) > QUIC tunnel MTU ({quinn_mtu})"
                 ));
             }
 
-            let data = read_from_interface(&mut read_interface, buf_size).await?;
+            let data = read_from_interface(&mut read_interface, interface_mtu).await?;
 
             debug!(
                 "Sending {} bytes to {:?}",
@@ -267,10 +278,19 @@ impl QuincyClient {
     async fn process_inbound_traffic(
         connection: Arc<Connection>,
         mut write_interface: WriteHalf<AsyncDevice>,
+        interface_mtu: usize,
     ) -> Result<()> {
         debug!("Started recv task");
         loop {
             let data = connection.read_datagram().await?;
+
+            if data.len() > interface_mtu {
+                return Err(anyhow!(
+                    "Length of the data sent by the server ({}) > interface MTU ({interface_mtu})",
+                    data.len()
+                ));
+            }
+
             debug!(
                 "Received {} bytes from {:?}",
                 data.len(),

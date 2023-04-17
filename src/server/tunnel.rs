@@ -8,6 +8,7 @@ use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
 use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
 use crate::utils::socket::bind_socket;
+use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -19,7 +20,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+
+use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
 type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
@@ -120,26 +122,52 @@ impl QuincyTunnel {
 
     /// Stops the tasks for this instance of Quincy tunnel.
     pub async fn stop(&mut self) -> Result<()> {
-        self.outbound_task
-            .take()
-            .ok_or_else(|| anyhow!("Reader task does not exist"))?
-            .abort();
-        self.inbound_task
-            .take()
-            .ok_or_else(|| anyhow!("Writer task does not exist"))?
-            .abort();
-        self.connection_task
-            .take()
-            .ok_or_else(|| anyhow!("Connection task does not exist"))?
-            .abort();
-        self.cleanup_task
-            .take()
-            .ok_or_else(|| anyhow!("Cleanup task does not exist"))?
-            .abort();
+        let timeout = Duration::from_secs(1);
+
+        let outbound_res = join_or_abort_task(
+            self.outbound_task
+                .take()
+                .ok_or_else(|| anyhow!("Outbound task does not exist"))?,
+            timeout,
+        )
+        .await;
+
+        let inbound_res = join_or_abort_task(
+            self.inbound_task
+                .take()
+                .ok_or_else(|| anyhow!("Inbound task does not exist"))?,
+            timeout,
+        )
+        .await;
+
+        let connection_res = join_or_abort_task(
+            self.connection_task
+                .take()
+                .ok_or_else(|| anyhow!("Connection task does not exist"))?,
+            timeout,
+        )
+        .await;
+
+        let cleanup_res = join_or_abort_task(
+            self.cleanup_task
+                .take()
+                .ok_or_else(|| anyhow!("Cleanup task does not exist"))?,
+            timeout,
+        )
+        .await;
 
         self.active_connections.clear();
         self.auth.reset();
         self.address_pool.reset();
+
+        for res in vec![outbound_res, inbound_res, connection_res, cleanup_res]
+            .into_iter()
+            .flatten()
+        {
+            if let Err(e) = res {
+                error!("An error occurred in Quincy tunnel: {e}")
+            }
+        }
 
         Ok(())
     }
@@ -346,6 +374,8 @@ impl QuincyTunnel {
                 );
                 continue;
             }
+
+            debug!("Quinn MTU: {max_datagram_size}");
 
             connection.send_datagram(buf)?;
         }
