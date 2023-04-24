@@ -29,8 +29,7 @@ pub struct QuincyConnection {
     auth_state: SharedAuthState,
     auth_timeout: u32,
     tun_queue: Arc<UnboundedSender<Bytes>>,
-    authentication_task: Option<JoinHandle<Result<()>>>,
-    connection_task: Option<JoinHandle<Result<()>>>,
+    tasks: Vec<JoinHandle<Result<()>>>,
 }
 
 impl QuincyConnection {
@@ -55,8 +54,7 @@ impl QuincyConnection {
             auth_state: Arc::new(RwLock::new(AuthState::Unauthenticated)),
             auth_timeout,
             tun_queue,
-            authentication_task: None,
-            connection_task: None,
+            tasks: Vec::new(),
         }
     }
 
@@ -68,14 +66,16 @@ impl QuincyConnection {
             ));
         }
 
-        self.authentication_task = Some(tokio::spawn(Self::process_authentication_stream(
-            self.connection.clone(),
-            self.auth.clone(),
-            self.auth_state.clone(),
-            self.auth_timeout,
-            self.client_address,
-        )));
-        self.connection_task = Some(tokio::spawn(Self::process_incoming_data(
+        self.tasks
+            .push(tokio::spawn(Self::process_authentication_stream(
+                self.connection.clone(),
+                self.auth.clone(),
+                self.auth_state.clone(),
+                self.auth_timeout,
+                self.client_address,
+            )));
+
+        self.tasks.push(tokio::spawn(Self::process_incoming_data(
             self.connection.clone(),
             self.tun_queue.clone(),
         )));
@@ -87,28 +87,9 @@ impl QuincyConnection {
     pub async fn stop(&mut self) -> Result<()> {
         let timeout = Duration::from_secs(1);
 
-        let authentication_res = join_or_abort_task(
-            self.authentication_task
-                .take()
-                .ok_or_else(|| anyhow!("Authentication task does not exist"))?,
-            timeout,
-        )
-        .await;
-
-        let connection_res = join_or_abort_task(
-            self.connection_task
-                .take()
-                .ok_or_else(|| anyhow!("Connection task does not exist"))?,
-            timeout,
-        )
-        .await;
-
-        for res in vec![authentication_res, connection_res]
-            .into_iter()
-            .flatten()
-        {
-            if let Err(e) = res {
-                error!("An error occurred in Quincy connection: {e}");
+        while let Some(task) = self.tasks.pop() {
+            if let Some(Err(e)) = join_or_abort_task(task, timeout).await {
+                error!("An error occurred in Quincy connection: {e}")
             }
         }
 
@@ -120,19 +101,7 @@ impl QuincyConnection {
     /// ### Returns
     /// - `true` if all connection tasks are running, `false` if not
     pub fn is_ok(&self) -> bool {
-        let authentication_task_ok = self
-            .authentication_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        let connection_task_ok = self
-            .connection_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        authentication_task_ok && connection_task_ok
+        !self.tasks.is_empty() && self.tasks.iter().all(|task| !task.is_finished())
     }
 
     delegate! {

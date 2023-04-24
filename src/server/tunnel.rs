@@ -17,7 +17,6 @@ use ipnet::Ipv4Net;
 use quinn::Endpoint;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -25,27 +24,16 @@ use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
 type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
-type SharedReadHalf<T> = Arc<RwLock<ReadHalf<T>>>;
-type SharedWriteHalf<T> = Arc<RwLock<WriteHalf<T>>>;
-type SharedSender<T> = Arc<UnboundedSender<T>>;
-type SharedReceiver<T> = Arc<RwLock<UnboundedReceiver<T>>>;
 
 /// Represents a Quincy tunnel encapsulating Quincy connections and TUN interface IO.
 pub struct QuincyTunnel {
-    tun_config: TunnelConfig,
+    tunnel_config: TunnelConfig,
     connection_config: ConnectionConfig,
-    tun_read: SharedReadHalf<AsyncDevice>,
-    tun_write: SharedWriteHalf<AsyncDevice>,
-    write_queue_sender: SharedSender<Bytes>,
-    write_queue_receiver: SharedReceiver<Bytes>,
     active_connections: SharedConnections,
-    buffer_size: usize,
-    outbound_task: Option<JoinHandle<Result<()>>>,
-    inbound_task: Option<JoinHandle<Result<()>>>,
-    connection_task: Option<JoinHandle<Result<()>>>,
-    cleanup_task: Option<JoinHandle<Result<()>>>,
     auth: Arc<Auth>,
     address_pool: Arc<AddressPool>,
+    buffer_size: usize,
+    tasks: Vec<JoinHandle<Result<()>>>,
 }
 
 impl QuincyTunnel {
@@ -58,29 +46,17 @@ impl QuincyTunnel {
         let interface_address =
             Ipv4Net::with_netmask(tunnel_config.address_tunnel, tunnel_config.address_mask)?.into();
 
-        let interface = set_up_interface(interface_address, connection_config.mtu)?;
-
-        let buffer_size = connection_config.mtu as i32;
-        let (tun_read, tun_write) = tokio::io::split(interface);
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let auth = Auth::new(Auth::load_users_file(&tunnel_config.users_file)?);
         let address_pool = AddressPool::new(interface_address)?;
 
         Ok(Self {
-            tun_config: tunnel_config,
+            tunnel_config,
             connection_config: connection_config.clone(),
-            tun_read: Arc::new(RwLock::new(tun_read)),
-            tun_write: Arc::new(RwLock::new(tun_write)),
-            write_queue_sender: Arc::new(sender),
-            write_queue_receiver: Arc::new(RwLock::new(receiver)),
             active_connections: Arc::new(DashMap::new()),
-            buffer_size: buffer_size as usize,
-            outbound_task: None,
-            inbound_task: None,
-            connection_task: None,
-            cleanup_task: None,
             auth: Arc::new(auth),
             address_pool: Arc::new(address_pool),
+            buffer_size: connection_config.mtu as usize,
+            tasks: Vec::new(),
         })
     }
 
@@ -90,32 +66,45 @@ impl QuincyTunnel {
             return Err(anyhow!("This instance of Quincy tunnel is already running"));
         }
 
+        let interface_address = Ipv4Net::with_netmask(
+            self.tunnel_config.address_tunnel,
+            self.tunnel_config.address_mask,
+        )?
+        .into();
+        let interface = set_up_interface(interface_address, self.connection_config.mtu)?;
+
+        let (tun_read, tun_write) = tokio::io::split(interface);
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+
         let quinn_configuration = self
-            .tun_config
+            .tunnel_config
             .as_quinn_server_config(&self.connection_config)?;
         let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
 
-        self.outbound_task = Some(tokio::spawn(Self::process_outbound_traffic(
-            self.tun_read.clone(),
+        self.tasks.push(tokio::spawn(Self::process_outbound_traffic(
+            tun_read,
             self.active_connections.clone(),
             self.buffer_size,
         )));
-        self.inbound_task = Some(tokio::spawn(Self::process_inbound_traffic(
-            self.tun_write.clone(),
-            self.write_queue_receiver.clone(),
+
+        self.tasks.push(tokio::spawn(Self::process_inbound_traffic(
+            tun_write, receiver,
         )));
-        self.cleanup_task = Some(tokio::spawn(Self::cleanup_connections(
+
+        self.tasks.push(tokio::spawn(Self::cleanup_connections(
             self.active_connections.clone(),
             self.address_pool.clone(),
         )));
-        self.connection_task = Some(tokio::spawn(Self::handle_incoming_connections(
-            self.active_connections.clone(),
-            self.address_pool.clone(),
-            self.write_queue_sender.clone(),
-            self.auth.clone(),
-            self.tun_config.auth_timeout,
-            endpoint,
-        )));
+
+        self.tasks
+            .push(tokio::spawn(Self::handle_incoming_connections(
+                self.active_connections.clone(),
+                self.address_pool.clone(),
+                Arc::new(sender),
+                self.auth.clone(),
+                self.tunnel_config.auth_timeout,
+                endpoint,
+            )));
 
         Ok(())
     }
@@ -124,47 +113,12 @@ impl QuincyTunnel {
     pub async fn stop(&mut self) -> Result<()> {
         let timeout = Duration::from_secs(1);
 
-        let outbound_res = join_or_abort_task(
-            self.outbound_task
-                .take()
-                .ok_or_else(|| anyhow!("Outbound task does not exist"))?,
-            timeout,
-        )
-        .await;
-
-        let inbound_res = join_or_abort_task(
-            self.inbound_task
-                .take()
-                .ok_or_else(|| anyhow!("Inbound task does not exist"))?,
-            timeout,
-        )
-        .await;
-
-        let connection_res = join_or_abort_task(
-            self.connection_task
-                .take()
-                .ok_or_else(|| anyhow!("Connection task does not exist"))?,
-            timeout,
-        )
-        .await;
-
-        let cleanup_res = join_or_abort_task(
-            self.cleanup_task
-                .take()
-                .ok_or_else(|| anyhow!("Cleanup task does not exist"))?,
-            timeout,
-        )
-        .await;
-
         self.active_connections.clear();
         self.auth.reset();
         self.address_pool.reset();
 
-        for res in vec![outbound_res, inbound_res, connection_res, cleanup_res]
-            .into_iter()
-            .flatten()
-        {
-            if let Err(e) = res {
+        while let Some(task) = self.tasks.pop() {
+            if let Some(Err(e)) = join_or_abort_task(task, timeout).await {
                 error!("An error occurred in Quincy tunnel: {e}")
             }
         }
@@ -177,31 +131,7 @@ impl QuincyTunnel {
     /// ### Returns
     /// - `true` if all tunnel tasks are running, `false` if not
     pub fn is_ok(&self) -> bool {
-        let reader_task_ok = self
-            .connection_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        let writer_task_ok = self
-            .connection_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        let connection_task_ok = self
-            .connection_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        let cleanup_task_ok = self
-            .connection_task
-            .as_ref()
-            .map(|worker| !worker.is_finished())
-            .unwrap_or(false);
-
-        reader_task_ok && writer_task_ok && connection_task_ok && cleanup_task_ok
+        !self.tasks.is_empty() && self.tasks.iter().all(|task| !task.is_finished())
     }
 
     /// Cleans up stale (failed/timed out) connections.
@@ -254,7 +184,7 @@ impl QuincyTunnel {
     async fn handle_incoming_connections(
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         address_pool: Arc<AddressPool>,
-        write_queue_sender: SharedSender<Bytes>,
+        write_queue_sender: Arc<UnboundedSender<Bytes>>,
         auth: Arc<Auth>,
         auth_timeout: u32,
         endpoint: Endpoint,
@@ -297,8 +227,8 @@ impl QuincyTunnel {
     fn create_quinn_endpoint(&self, quinn_config: quinn::ServerConfig) -> Result<Endpoint> {
         let socket = bind_socket(
             SocketAddr::V4(SocketAddrV4::new(
-                self.tun_config.bind_address,
-                self.tun_config.bind_port,
+                self.tunnel_config.bind_address,
+                self.tunnel_config.bind_port,
             )),
             self.connection_config.send_buffer_size as usize,
             self.connection_config.recv_buffer_size as usize,
@@ -321,12 +251,10 @@ impl QuincyTunnel {
     /// - `active_connections` - a map of connections and their associated client IP addresses
     /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
     async fn process_outbound_traffic(
-        tun_read: Arc<RwLock<ReadHalf<AsyncDevice>>>,
+        mut tun_read: ReadHalf<AsyncDevice>,
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         buffer_size: usize,
     ) -> Result<()> {
-        let mut tun_read = tun_read.write().await;
-
         debug!("Started incoming tunnel worker");
         loop {
             let buf = read_from_interface(&mut tun_read, buffer_size).await?;
@@ -387,12 +315,9 @@ impl QuincyTunnel {
     /// - `tun_write` - the write half of the TUN interface
     /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
     async fn process_inbound_traffic(
-        tun_write: Arc<RwLock<WriteHalf<AsyncDevice>>>,
-        write_queue_receiver: Arc<RwLock<UnboundedReceiver<Bytes>>>,
+        mut tun_write: WriteHalf<AsyncDevice>,
+        mut write_queue_receiver: UnboundedReceiver<Bytes>,
     ) -> Result<()> {
-        let mut tun_write = tun_write.write().await;
-        let mut write_queue_receiver = write_queue_receiver.write().await;
-
         debug!("Started outgoing tunnel worker");
         while let Some(buf) = write_queue_receiver.recv().await {
             debug!("Sent {} bytes to tunnel", buf.len());
