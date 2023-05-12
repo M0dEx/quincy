@@ -20,6 +20,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use crate::constants::QUINCY_RUNTIME;
 use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
@@ -238,7 +239,7 @@ impl QuincyTunnel {
             Default::default(),
             Some(quinn_config),
             socket,
-            quinn::TokioRuntime,
+            QUINCY_RUNTIME.clone(),
         )?;
 
         Ok(endpoint)

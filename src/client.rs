@@ -1,7 +1,7 @@
 use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
 
 use crate::config::ClientConfig;
-use crate::constants::BINCODE_BUFFER_SIZE;
+use crate::constants::{BINCODE_BUFFER_SIZE, QUINCY_RUNTIME};
 use crate::utils::{
     serde::{decode_message, encode_message, ip_addr_from_bytes},
     socket::bind_socket,
@@ -118,7 +118,7 @@ impl QuincyClient {
             self.client_config.connection.recv_buffer_size as usize,
         )?;
 
-        let endpoint = Endpoint::new(Default::default(), None, socket, quinn::TokioRuntime)?;
+        let endpoint = Endpoint::new(Default::default(), None, socket, QUINCY_RUNTIME.clone())?;
 
         Ok(endpoint)
     }

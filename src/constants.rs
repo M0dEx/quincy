@@ -1,7 +1,9 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 
 use bincode::config::{Configuration, Limit, LittleEndian, Varint};
 use once_cell::sync::Lazy;
+use quinn::Runtime;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use tokio::sync::Mutex;
@@ -17,6 +19,9 @@ pub const IPV4_ADDR_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
 
 /// Represents the size of an `Ipv6Addr` address.
 pub const IPV6_ADDR_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
+
+/// Represents the default MTU overhead for QUIC.
+pub const QUIC_MTU_OVERHEAD: u16 = 42;
 
 /// Represents the size of the packet info header on UNIX systems.
 #[cfg(target_os = "macos")]
@@ -49,5 +54,5 @@ pub static TLS_PROTOCOL_VERSIONS: &[&rustls::SupportedProtocolVersion] = &[&rust
 /// Represents the supported TLS ALPN protocols for Quincy.
 pub static TLS_ALPN_PROTOCOLS: Lazy<Vec<Vec<u8>>> = Lazy::new(|| vec![b"quincy".to_vec()]);
 
-/// Represents the default MTU overhead for QUIC.
-pub const QUIC_MTU_OVERHEAD: u16 = 42;
+/// Represents the async runtime used by Quinn.
+pub static QUINCY_RUNTIME: Lazy<Arc<dyn Runtime>> = Lazy::new(|| Arc::new(quinn::TokioRuntime));

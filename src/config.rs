@@ -3,7 +3,7 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use quinn::{TransportConfig, VarInt};
+use quinn::{MtuDiscoveryConfig, TransportConfig, VarInt};
 use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -228,13 +228,15 @@ impl ClientConfig {
 
         let mut quinn_config = quinn::ClientConfig::new(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
+        let mut mtu_config = MtuDiscoveryConfig::default();
 
         transport_config.max_idle_timeout(Some(
             VarInt::from_u32(self.authentication.auth_interval * 2 * 1_000).into(),
         ));
-        transport_config
-            .initial_max_udp_payload_size(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
 
+        mtu_config.upper_bound(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
+
+        transport_config.mtu_discovery_config(Some(mtu_config));
         quinn_config.transport_config(Arc::new(transport_config));
 
         Ok(quinn_config)
@@ -269,12 +271,14 @@ impl TunnelConfig {
 
         let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
+        let mut mtu_config = MtuDiscoveryConfig::default();
 
         transport_config
             .max_idle_timeout(Some(VarInt::from_u32(self.auth_timeout * 2 * 1_000).into()));
-        transport_config
-            .initial_max_udp_payload_size(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
 
+        mtu_config.upper_bound(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
+
+        transport_config.mtu_discovery_config(Some(mtu_config));
         quinn_config.transport_config(Arc::new(transport_config));
 
         Ok(quinn_config)
