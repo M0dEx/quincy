@@ -16,7 +16,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - uses: katyo/publish-crates@v2
         name: Publish crate

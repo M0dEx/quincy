@@ -24,7 +24,7 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           override: true
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - uses: actions-rs/cargo@v1
         name: Build crate
@@ -48,7 +48,7 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - uses: actions-rs/cargo@v1
         name: Check code with cargo fmt
