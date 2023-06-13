@@ -4,4 +4,3 @@ repos:
   hooks:
   - id: fmt
   - id: clippy
-  - id: cargo-check
