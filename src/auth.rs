@@ -1,3 +1,4 @@
+pub mod client;
 pub mod user;
 
 use crate::auth::user::User;
@@ -17,13 +18,6 @@ pub type SessionToken = [u8; 16];
 pub enum AuthState {
     Unauthenticated,
     Authenticated(String),
-}
-
-/// Represents an authentication message sent by the client.
-#[derive(Encode, Decode, Debug)]
-pub enum AuthClientMessage {
-    Authentication(String, String),
-    SessionToken(SessionToken),
 }
 
 /// Represents an authentication message sent by the server.

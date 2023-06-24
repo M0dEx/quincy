@@ -1,23 +1,16 @@
-use crate::auth::{AuthClientMessage, AuthServerMessage, SessionToken};
+use crate::auth::client::AuthClient;
 
 use crate::config::ClientConfig;
-use crate::constants::{BINCODE_BUFFER_SIZE, QUINCY_RUNTIME};
-use crate::utils::{
-    serde::{decode_message, encode_message, ip_addr_from_bytes},
-    socket::bind_socket,
-};
+use crate::constants::QUINCY_RUNTIME;
+use crate::utils::socket::bind_socket;
 use anyhow::{anyhow, Result};
-use bytes::BytesMut;
-use ipnet::IpNet;
-use quinn::{Connection, Endpoint, RecvStream, SendStream};
+use quinn::{Connection, Endpoint};
 
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 
 use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, ReadHalf, WriteHalf};
-use tokio::time::sleep;
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::try_join;
 use tracing::{debug, info};
 use tun::AsyncDevice;
@@ -39,17 +32,17 @@ impl QuincyClient {
     /// Connects to the Quincy server and starts the workers for this instance of the Quincy client.
     pub async fn run(&self) -> Result<()> {
         let connection = self.connect_to_server().await?;
+        let mut auth_client =
+            AuthClient::new(&connection, &self.client_config.authentication).await?;
 
-        let (mut auth_send, mut auth_receive) = connection.open_bi().await?;
-        let (assigned_address, session_token) =
-            self.authenticate(&mut auth_send, &mut auth_receive).await?;
+        let assigned_address = auth_client.authenticate().await?;
 
         debug!("Received TUN address: {assigned_address}");
 
         let interface = set_up_interface(assigned_address, self.client_config.connection.mtu)?;
 
         try_join!(
-            self.manage_session(auth_send, auth_receive, session_token),
+            auth_client.maintain_session(),
             self.relay_packets(
                 connection,
                 interface,
@@ -121,85 +114,6 @@ impl QuincyClient {
         let endpoint = Endpoint::new(Default::default(), None, socket, QUINCY_RUNTIME.clone())?;
 
         Ok(endpoint)
-    }
-
-    /// Authenticates with the Quincy server.
-    ///
-    /// ### Arguments
-    /// - `auth_send` - the send stream for the authentication channel
-    /// - `auth_recv` - the receive stream for the authentication channel
-    ///
-    /// ### Returns
-    /// - `IpNet, SessionToken` - the assigned TUN address and the session token
-    async fn authenticate(
-        &self,
-        auth_send: &mut SendStream,
-        auth_recv: &mut RecvStream,
-    ) -> Result<(IpNet, SessionToken)> {
-        let basic_auth = AuthClientMessage::Authentication(
-            self.client_config.authentication.username.clone(),
-            self.client_config.authentication.password.clone(),
-        );
-
-        let buf = encode_message(basic_auth)?;
-        auth_send.write_all(&buf).await?;
-
-        let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
-        auth_recv.read_buf(&mut buf).await?;
-
-        // FIXME: This should not be necessary
-        let auth_response = if !buf.is_empty() {
-            decode_message(buf.into())?
-        } else {
-            AuthServerMessage::Failed
-        };
-
-        match auth_response {
-            AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => {
-                let address = IpNet::with_netmask(
-                    ip_addr_from_bytes(&addr_data)?,
-                    ip_addr_from_bytes(&netmask_data)?,
-                )?;
-
-                Ok((address, session_token))
-            }
-            _ => Err(anyhow!("Authentication failed")),
-        }
-    }
-
-    /// Manages the session with the Quincy server.
-    ///
-    /// ### Arguments
-    /// - `auth_send` - the send stream for the authentication channel
-    /// - `auth_recv` - the receive stream for the authentication channel
-    /// - `session_token` - the session token
-    async fn manage_session(
-        &self,
-        mut auth_send: SendStream,
-        mut auth_recv: RecvStream,
-        session_token: SessionToken,
-    ) -> Result<()> {
-        let auth_interval =
-            Duration::from_secs(self.client_config.authentication.auth_interval as u64);
-
-        let message = AuthClientMessage::SessionToken(session_token);
-        let buf = encode_message(message)?;
-
-        loop {
-            auth_send.write_all(&buf).await?;
-
-            let mut response_buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
-            auth_recv.read_buf(&mut response_buf).await?;
-
-            let auth_response: AuthServerMessage = decode_message(response_buf.into())?;
-
-            match auth_response {
-                AuthServerMessage::Ok => {}
-                _ => return Err(anyhow!("Session died")),
-            }
-
-            sleep(auth_interval).await;
-        }
     }
 
     /// Relays packets between the TUN interface and the Quincy server.

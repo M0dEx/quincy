@@ -1,4 +1,5 @@
-use crate::auth::{Auth, AuthClientMessage, AuthServerMessage, AuthState};
+use crate::auth::client::AuthClientMessage;
+use crate::auth::{Auth, AuthServerMessage, AuthState};
 use crate::constants::{AUTH_TIMEOUT_GRACE, BINCODE_BUFFER_SIZE};
 use crate::utils::serde::{decode_message, encode_message, ip_addr_to_bytes};
 use crate::utils::tasks::join_or_abort_task;
