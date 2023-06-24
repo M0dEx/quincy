@@ -52,6 +52,7 @@ tracing = "^0.1.37"
 tracing-subscriber = { version = "^0.3.17", features = ["env-filter"] }
 
 # Utils
+async-trait = "^0.1.68"
 bincode = "^2.0.0-rc.3"
 chrono = { version = "^0.4.24", features = ["clock"] }
 getset = "^0.1.2"
