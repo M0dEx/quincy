@@ -26,6 +26,12 @@ These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/toki
 - [X] Linux
 - [X] MacOS
 
+## Installation
+Using cargo, installation of published version can be done with a simple command:
+```bash
+$ cargo install quincy
+```
+
 ## Building from sources
 As Quincy does not rely upon any non-Rust libraries, the build process is incredibly simple:
 ```bash
@@ -68,7 +74,7 @@ level = "info"
 
 With the configuration file in place, the client can be started using the following command:
 ```bash
-$ client --config-path examples/client.toml
+$ quincy-client --config-path examples/client.toml
 ```
 
 Routes are set up by default on some systems (Linux) and not set-up at all on others (MacOS).
@@ -102,11 +108,11 @@ level = "info"
 
 With the configuration file in place, the client can be started using the following command:
 ```bash
-$ server --config-path examples/server.toml
+$ quincy-server --config-path examples/server.toml
 ```
 
 ### Users
-The users utility can be used to manage entries the `users` file. 
+The users utility can be used to manage entries in the `users` file. 
 The `users` file contains usernames and password hashes in the following format (`examples/users`):
 ```
 test:$argon2id$v=19$m=19456,t=2,p=1$S9rMLOcz/dnYN4cnyc/TJg$ES0p+DErLfcWoUJ2tvZlxZSSIGYNUEe0ZpKBDz7MOj0
@@ -114,7 +120,7 @@ test:$argon2id$v=19$m=19456,t=2,p=1$S9rMLOcz/dnYN4cnyc/TJg$ES0p+DErLfcWoUJ2tvZlx
 
 The following command can be used to add users to this file:
 ```bash
-$ users --add examples/users
+$ quincy-users --add examples/users
 ```
 
 The prompts will look something like this:
@@ -126,7 +132,7 @@ Confirm password for user 'test':
 
 A similar command can be used to remove users from the file:
 ```bash
-$ users --remove examples/users
+$ quincy-users --remove examples/users
 ```
 
 The prompt will again look something like this:
