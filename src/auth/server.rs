@@ -99,11 +99,7 @@ impl AuthServer {
                     session_token,
                 );
 
-                self.send_stream
-                    .write()
-                    .await
-                    .send_message(response)
-                    .await?;
+                self.send_message(response).await?;
                 self.set_state(AuthState::Authenticated(username)).await;
 
                 Ok(())

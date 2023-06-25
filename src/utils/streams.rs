@@ -47,7 +47,7 @@ impl AsyncReceiveBincode for RecvStream {
         let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
         self.read_buf(&mut buf).await?;
 
-        let message = if buf.is_empty() {
+        let message = if !buf.is_empty() {
             Some(decode_message(buf.into())?)
         } else {
             None
