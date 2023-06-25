@@ -26,8 +26,8 @@ pub trait AsyncReceiveBincode {
     /// - `stream` - the RecvStream to receive the message from
     ///
     /// ### Returns
-    /// - Type `M` - the received message
-    async fn receive_message<M: Decode>(&mut self) -> Result<M>;
+    /// - `Option<M>` - the received message or None if the stream no data was received
+    async fn receive_message<M: Decode>(&mut self) -> Result<Option<M>>;
 }
 
 #[async_trait]
@@ -43,11 +43,15 @@ impl AsyncSendBincode for SendStream {
 
 #[async_trait]
 impl AsyncReceiveBincode for RecvStream {
-    async fn receive_message<M: Decode>(&mut self) -> Result<M> {
+    async fn receive_message<M: Decode>(&mut self) -> Result<Option<M>> {
         let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
         self.read_buf(&mut buf).await?;
 
-        let message = decode_message(buf.into())?;
+        let message = if buf.is_empty() {
+            Some(decode_message(buf.into())?)
+        } else {
+            None
+        };
 
         Ok(message)
     }
