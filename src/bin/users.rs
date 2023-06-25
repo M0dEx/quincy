@@ -4,8 +4,7 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use clap::Parser;
 use dashmap::DashMap;
-use quincy::auth::user::User;
-use quincy::auth::Auth;
+use quincy::auth::user::{load_users_file, save_users_file, User};
 use rpassword::prompt_password;
 use std::io::Write;
 use std::path::PathBuf;
@@ -25,7 +24,7 @@ pub struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut users = Auth::load_users_file(&args.users_file_path)?;
+    let mut users = load_users_file(&args.users_file_path)?;
 
     users = match (args.add, args.delete) {
         (true, false) => add_user(users)?,
@@ -36,7 +35,7 @@ fn main() -> Result<()> {
         }
     };
 
-    Auth::save_users_file(&args.users_file_path, users)?;
+    save_users_file(&args.users_file_path, users)?;
 
     Ok(())
 }

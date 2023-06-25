@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::auth::Auth;
+use crate::auth::user::{load_users_file, UserDatabase};
 use crate::config::{ConnectionConfig, TunnelConfig};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
@@ -31,7 +31,7 @@ pub struct QuincyTunnel {
     tunnel_config: TunnelConfig,
     connection_config: ConnectionConfig,
     active_connections: SharedConnections,
-    auth: Arc<Auth>,
+    user_database: Arc<UserDatabase>,
     address_pool: Arc<AddressPool>,
     buffer_size: usize,
     tasks: Vec<JoinHandle<Result<()>>>,
@@ -47,14 +47,14 @@ impl QuincyTunnel {
         let interface_address =
             Ipv4Net::with_netmask(tunnel_config.address_tunnel, tunnel_config.address_mask)?.into();
 
-        let auth = Auth::new(Auth::load_users_file(&tunnel_config.users_file)?);
+        let user_database = UserDatabase::new(load_users_file(&tunnel_config.users_file)?);
         let address_pool = AddressPool::new(interface_address)?;
 
         Ok(Self {
             tunnel_config,
             connection_config: connection_config.clone(),
             active_connections: Arc::new(DashMap::new()),
-            auth: Arc::new(auth),
+            user_database: Arc::new(user_database),
             address_pool: Arc::new(address_pool),
             buffer_size: connection_config.mtu as usize,
             tasks: Vec::new(),
@@ -102,7 +102,7 @@ impl QuincyTunnel {
                 self.active_connections.clone(),
                 self.address_pool.clone(),
                 Arc::new(sender),
-                self.auth.clone(),
+                self.user_database.clone(),
                 self.tunnel_config.auth_timeout,
                 endpoint,
             )));
@@ -115,7 +115,7 @@ impl QuincyTunnel {
         let timeout = Duration::from_secs(1);
 
         self.active_connections.clear();
-        self.auth.reset();
+        self.user_database.reset();
         self.address_pool.reset();
 
         while let Some(task) = self.tasks.pop() {
@@ -186,7 +186,7 @@ impl QuincyTunnel {
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         address_pool: Arc<AddressPool>,
         write_queue_sender: Arc<UnboundedSender<Bytes>>,
-        auth: Arc<Auth>,
+        user_database: Arc<UserDatabase>,
         auth_timeout: u32,
         endpoint: Endpoint,
     ) -> Result<()> {
@@ -208,11 +208,13 @@ impl QuincyTunnel {
             let mut connection = QuincyConnection::new(
                 handshake.await?,
                 write_queue_sender.clone(),
-                auth.clone(),
+                user_database.clone(),
                 auth_timeout,
                 client_tun_ip,
-            );
-            connection.start()?;
+            )
+            .await?;
+
+            connection.start().await?;
             debug!("Started connection worker for client {client_tun_ip}");
 
             active_connections.insert(client_tun_ip.addr(), connection);
@@ -306,7 +308,7 @@ impl QuincyTunnel {
 
             debug!("Quinn MTU: {max_datagram_size}");
 
-            connection.send_datagram(buf)?;
+            connection.send_datagram(buf).await?;
         }
     }
 

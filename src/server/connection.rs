@@ -1,34 +1,27 @@
-use crate::auth::client::AuthClientMessage;
-use crate::auth::{Auth, AuthServerMessage, AuthState};
-use crate::constants::{AUTH_TIMEOUT_GRACE, BINCODE_BUFFER_SIZE};
-use crate::utils::serde::{decode_message, encode_message, ip_addr_to_bytes};
+use crate::auth::server::{AuthServer, AuthState};
+use crate::auth::user::UserDatabase;
+use crate::constants::AUTH_TIMEOUT_GRACE;
 use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use delegate::delegate;
 use ipnet::IpNet;
 
+use quinn::Connection;
 use quinn::SendDatagramError;
-use quinn::{Connection, VarInt};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tracing::log::warn;
 use tracing::{debug, error};
-
-type SharedAuthState = Arc<RwLock<AuthState>>;
 
 /// Represents a Quincy connection encapsulating authentication and IO.
 pub struct QuincyConnection {
     connection: Arc<Connection>,
-    client_address: IpNet,
-    auth: Arc<Auth>,
-    auth_state: SharedAuthState,
-    auth_timeout: u32,
+    auth_server: Arc<RwLock<AuthServer>>,
     tun_queue: Arc<UnboundedSender<Bytes>>,
     tasks: Vec<JoinHandle<Result<()>>>,
 }
@@ -38,47 +31,51 @@ impl QuincyConnection {
     ///
     /// ### Arguments
     /// - `connection` - the underlying QUIC connection
-    /// - `tun_queue` - a sender of an unbounded queue used by the tunnel worker to receive data
-    /// - `auth` - a reference to the authentication module
-    /// - `client_address` - an address and network mask to be used by the client after successful authentication
-    pub fn new(
+    /// - `tun_queue` - the queue to send data to the TUN interface
+    /// - `user_database` - the user database
+    /// - `auth_timeout` - the authentication timeout
+    /// - `client_address` - the assigned client address
+    pub async fn new(
         connection: Connection,
         tun_queue: Arc<UnboundedSender<Bytes>>,
-        auth: Arc<Auth>,
+        user_database: Arc<UserDatabase>,
         auth_timeout: u32,
         client_address: IpNet,
-    ) -> Self {
-        Self {
-            connection: Arc::new(connection),
+    ) -> Result<Self> {
+        let connection = Arc::new(connection);
+        let auth_timeout = Duration::from_secs(auth_timeout as u64 + AUTH_TIMEOUT_GRACE);
+        let auth_server = AuthServer::new(
+            user_database,
+            connection.clone(),
             client_address,
-            auth,
-            auth_state: Arc::new(RwLock::new(AuthState::Unauthenticated)),
             auth_timeout,
+        )
+        .await?;
+
+        Ok(Self {
+            connection,
+            auth_server: Arc::new(RwLock::new(auth_server)),
             tun_queue,
             tasks: Vec::new(),
-        }
+        })
     }
 
     /// Starts the tasks for this instance of Quincy connection.
-    pub fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         if self.is_ok() {
             return Err(anyhow!(
                 "This instance of Quincy connection is already running"
             ));
         }
 
-        self.tasks
-            .push(tokio::spawn(Self::process_authentication_stream(
-                self.connection.clone(),
-                self.auth.clone(),
-                self.auth_state.clone(),
-                self.auth_timeout,
-                self.client_address,
-            )));
+        self.tasks.push(tokio::spawn(Self::handle_authentication(
+            self.auth_server.clone(),
+        )));
 
         self.tasks.push(tokio::spawn(Self::process_incoming_data(
             self.connection.clone(),
             self.tun_queue.clone(),
+            self.auth_server.clone(),
         )));
 
         Ok(())
@@ -105,9 +102,29 @@ impl QuincyConnection {
         !self.tasks.is_empty() && self.tasks.iter().all(|task| !task.is_finished())
     }
 
+    /// Sends an unreliable datagram to the client.
+    ///
+    /// ### Arguments
+    /// - `data` - the data to be sent
+    pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
+        match self.auth_server.read().await.get_state().await {
+            AuthState::Authenticated(_) => (),
+            _ => {
+                warn!(
+                    "Connection {:?} not authenticated, dropping outgoing data",
+                    self.connection.remote_address(),
+                );
+                return Ok(());
+            }
+        }
+
+        self.connection.send_datagram(data)?;
+
+        Ok(())
+    }
+
     delegate! {
         to self.connection {
-            pub fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError>;
             pub fn max_datagram_size(&self) -> Option<usize>;
             pub fn remote_address(&self) -> SocketAddr;
         }
@@ -121,8 +138,20 @@ impl QuincyConnection {
     async fn process_incoming_data(
         connection: Arc<Connection>,
         tun_queue: Arc<UnboundedSender<Bytes>>,
+        auth_server: Arc<RwLock<AuthServer>>,
     ) -> Result<()> {
         loop {
+            match auth_server.read().await.get_state().await {
+                AuthState::Authenticated(_) => (),
+                _ => {
+                    warn!(
+                        "Connection {:?} not authenticated, dropping incoming data",
+                        connection.remote_address(),
+                    );
+                    continue;
+                }
+            }
+
             let data = connection.read_datagram().await?;
             debug!(
                 "Received {} bytes from {:?}",
@@ -134,85 +163,8 @@ impl QuincyConnection {
         }
     }
 
-    /// Processes incoming and outgoing authentication messages.
-    ///
-    /// ### Arguments
-    /// - `connection` - a reference to the underlying QUIC connection
-    /// - `auth` - a reference to the authentication module
-    /// - `auth_state` - a reference to the authentication state for this connection
-    /// - `client_address` - an address and network mask intended to be used by the client after successful authentication
-    async fn process_authentication_stream(
-        connection: Arc<Connection>,
-        auth: Arc<Auth>,
-        auth_state: SharedAuthState,
-        auth_timeout: u32,
-        client_address: IpNet,
-    ) -> Result<()> {
-        let (mut auth_stream_send, mut auth_stream_recv) = connection.accept_bi().await?;
-        let auth_interval = Duration::from_secs(auth_timeout as u64 + AUTH_TIMEOUT_GRACE);
-
-        loop {
-            let mut buf = BytesMut::with_capacity(BINCODE_BUFFER_SIZE);
-
-            let message: Option<AuthClientMessage> =
-                match timeout(auth_interval, auth_stream_recv.read_buf(&mut buf)).await {
-                    Ok(_) => Some(decode_message(buf.into())?),
-                    Err(_) => None,
-                };
-
-            let state = auth_state.read().await.clone();
-            let mut new_state: AuthState = state.clone();
-
-            match (state, message) {
-                (
-                    AuthState::Authenticated(username),
-                    Some(AuthClientMessage::SessionToken(token)),
-                ) => {
-                    if auth.verify_session_token(&username, token)? {
-                        let data = encode_message(AuthServerMessage::Ok)?;
-                        auth_stream_send.write_all(&data).await?
-                    }
-                }
-                (
-                    AuthState::Unauthenticated,
-                    Some(AuthClientMessage::Authentication(username, password)),
-                ) => {
-                    let session_token = auth.authenticate(&username, password).await?;
-                    let response = AuthServerMessage::Authenticated(
-                        ip_addr_to_bytes(client_address.addr()),
-                        ip_addr_to_bytes(client_address.netmask()),
-                        session_token,
-                    );
-
-                    let data = encode_message(response)?;
-                    auth_stream_send.write_all(&data).await?;
-                    new_state = AuthState::Authenticated(username);
-                }
-                (_, None) => {
-                    error!("Client {} timed out", client_address.addr());
-                    // TODO: Use consts for QUIC error codes
-                    let data = encode_message(AuthServerMessage::Failed)?;
-                    auth_stream_send.write_all(&data).await?;
-                    auth_stream_send.finish().await?;
-                    connection.close(
-                        VarInt::from_u32(0x01),
-                        "Authentication timed out".as_bytes(),
-                    );
-                    break;
-                }
-                _ => {
-                    error!("Client {} authentication failed", client_address.addr());
-                    let data = encode_message(AuthServerMessage::Failed)?;
-                    auth_stream_send.write_all(&data).await?;
-                    auth_stream_send.finish().await?;
-                    connection.close(VarInt::from_u32(0x01), "Invalid authentication".as_bytes());
-                    break;
-                }
-            }
-
-            *auth_state.write().await = new_state;
-        }
-
-        Ok(())
+    async fn handle_authentication(auth_server: Arc<RwLock<AuthServer>>) -> Result<()> {
+        let auth_server = auth_server.read().await;
+        auth_server.handle_authentication().await
     }
 }

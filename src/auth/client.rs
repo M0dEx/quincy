@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::{AuthServerMessage, SessionToken};
+use super::{server::AuthServerMessage, SessionToken};
 
 /// Represents an authentication message sent by the client.
 #[derive(Encode, Decode, Clone, Debug)]
@@ -59,10 +59,10 @@ impl AuthClient {
             AuthClientMessage::Authentication(self.username.clone(), self.password.clone());
 
         self.send_stream.send_message(basic_auth).await?;
-        let auth_response: AuthServerMessage = self.recv_stream.receive_message().await?;
+        let auth_response = self.recv_stream.receive_message().await?;
 
         match auth_response {
-            AuthServerMessage::Authenticated(addr_data, netmask_data, session_token) => {
+            Some(AuthServerMessage::Authenticated(addr_data, netmask_data, session_token)) => {
                 let address = IpNet::with_netmask(
                     ip_addr_from_bytes(&addr_data)?,
                     ip_addr_from_bytes(&netmask_data)?,
@@ -88,10 +88,10 @@ impl AuthClient {
                 .send_message(session_token_msg.clone())
                 .await?;
 
-            let auth_response: AuthServerMessage = self.recv_stream.receive_message().await?;
+            let auth_response = self.recv_stream.receive_message().await?;
 
             match auth_response {
-                AuthServerMessage::Ok => {}
+                Some(AuthServerMessage::Ok) => {}
                 _ => return Err(anyhow!("Session died")),
             }
 
