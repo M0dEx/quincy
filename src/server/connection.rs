@@ -135,6 +135,7 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - a reference to the underlying QUIC connection
     /// - `tun_queue` - a sender of an unbounded queue used by the tunnel worker to receive data
+    /// - `auth_server` - a reference to the authentication server
     async fn process_incoming_data(
         connection: Arc<Connection>,
         tun_queue: Arc<UnboundedSender<Bytes>>,
