@@ -215,7 +215,10 @@ impl QuincyTunnel {
             .await?;
 
             connection.start().await?;
-            debug!("Started connection worker for client {client_tun_ip}");
+            info!(
+                "Accepted connection: Source = {}, Client IP = {client_tun_ip}",
+                connection.remote_address()
+            );
 
             active_connections.insert(client_tun_ip.addr(), connection);
         }
