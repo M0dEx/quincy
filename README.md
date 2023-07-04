@@ -202,6 +202,8 @@ issuerAltName          = issuer:copy
 $ openssl x509 -req -in cert.csr -signkey <your_certificate_key_file> -out <your_certificate_file> -days 365 -sha256 -extfile <your_v3_ext_file>
 ```
 
+You then have to add the certificate to both you server and your client configuration files.
+
 ### Configuration reference
 **Server**
 ```toml
