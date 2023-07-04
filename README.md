@@ -139,3 +139,87 @@ The prompt will again look something like this:
 ```
 Enter the username: test 
 ```
+
+## Certificate management
+There are a couple of options when it comes to setting up the certificates used by Quincy.
+
+### Certificate signed by a trusted CA
+This is the *proper* way to manage certificates with Quincy.
+
+You can either request/pay for a certificate from a service with a globally trusted CA (Let's Encrypt, GoDaddy, ...) or generate your own certificate authority and then sign an end-point certificate.
+
+If you have a certificate signed by a globally trusted CA, you can simply add it to the server configuration file and run Quincy. The client will trust the certificate, as the signing certificate is most likely in the system's trusted root certificate store.
+
+If you have a certificate signed by your own (self-signed) CA, follow the steps above and additionally add your CA certificate to the client configuration file.
+
+You can use [mkcert](https://github.com/FiloSottile/mkcert) for generating your own CA certificate and using it to sign an end-point certificate.
+
+### Self-signed certificate
+This is an easier set up that might be used by home-lab administrators or for local testing.
+
+The steps to generate a self-signed certificate that can be used with Quincy:
+1) Generate a private key (I use ECC for my certificates, but RSA is fine)
+```
+$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out <your_certificate_key_file>
+```
+
+2) Generate a certificate request (you can fill out the fields with whatever information you want)
+```
+$ openssl req -new -key <your_certificate_key_file> -out <your_certificate_request_file>       
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:XX
+State or Province Name (full name) [Some-State]:.
+Locality Name (eg, city) []:.
+Organization Name (eg, company) [Internet Widgits Pty Ltd]:.
+Organizational Unit Name (eg, section) []:.
+Common Name (e.g. server FQDN or YOUR name) []:quincy
+Email Address []:
+
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:
+An optional company name []:
+```
+
+3) Create a v3 extensions configuration file with the following content (fill out the `subjectAltName` field with the hostname/IP the clients will be connecting to)
+```
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = CA:FALSE
+keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment, keyAgreement, keyCertSign
+subjectAltName         = DNS:quincy
+issuerAltName          = issuer:copy
+```
+
+4) Sign your certificate
+```
+$ openssl x509 -req -in cert.csr -signkey <your_certificate_key_file> -out <your_certificate_file> -days 365 -sha256 -extfile <your_v3_ext_file>
+```
+
+You then have to add the certificate to both you server and your client configuration files.
+
+### Configuration reference
+**Server**
+```toml
+[tunnels.<tunnel_name>]
+# Path to the certificate used for TLS
+certificate_file = "server_cert.pem"
+# Path to the certificate key used for TLS
+certificate_key_file = "server_key.pem"
+```
+
+
+**Client**
+```toml
+# CLIENT
+
+[authentication]
+# A list of trusted certificates the server can use or have its certificate signed by
+trusted_certificates = ["ca_cert.pem"]
+```
