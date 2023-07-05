@@ -1,5 +1,5 @@
-use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
 use crate::server::tunnel::QuincyTunnel;
+use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
 use anyhow::Result;
 use dashmap::DashMap;
 use tokio::time::sleep;
@@ -23,7 +23,8 @@ impl QuincyServer {
         let tunnels = DashMap::new();
 
         for (name, tunnel_config) in config.tunnels.iter() {
-            let tunnel = QuincyTunnel::new(name.clone(), tunnel_config.clone(), &config.connection)?;
+            let tunnel =
+                QuincyTunnel::new(name.clone(), tunnel_config.clone(), &config.connection)?;
 
             tunnels.insert(name.clone(), tunnel);
         }

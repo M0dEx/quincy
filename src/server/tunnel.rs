@@ -20,7 +20,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::constants::{QUINN_RUNTIME, CLEANUP_INTERVAL};
+use crate::constants::{CLEANUP_INTERVAL, QUINN_RUNTIME};
 use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
