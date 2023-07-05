@@ -3,7 +3,7 @@ use crate::server::tunnel::QuincyTunnel;
 use anyhow::Result;
 use dashmap::DashMap;
 use tokio::time::sleep;
-use tracing::error;
+use tracing::{error, info};
 
 pub mod address_pool;
 pub mod connection;
@@ -23,7 +23,7 @@ impl QuincyServer {
         let tunnels = DashMap::new();
 
         for (name, tunnel_config) in config.tunnels.iter() {
-            let tunnel = QuincyTunnel::new(tunnel_config.clone(), &config.connection)?;
+            let tunnel = QuincyTunnel::new(name.clone(), tunnel_config.clone(), &config.connection)?;
 
             tunnels.insert(name.clone(), tunnel);
         }
@@ -50,9 +50,12 @@ impl QuincyServer {
                     continue;
                 }
 
-                error!("Tunnel '{tunnel_name}' has crashed. Attempting to restart...");
+                error!("Tunnel '{tunnel_name}' encountered an error, restarting...");
+
                 tunnel.stop().await?;
                 tunnel.start().await?;
+
+                info!("Tunnel '{tunnel_name}' restarted successfully");
             }
 
             sleep(CLEANUP_INTERVAL).await;
