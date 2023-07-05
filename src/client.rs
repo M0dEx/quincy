@@ -1,7 +1,7 @@
 use crate::auth::client::AuthClient;
 
 use crate::config::ClientConfig;
-use crate::constants::QUINCY_RUNTIME;
+use crate::constants::QUINN_RUNTIME;
 use crate::utils::socket::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Connection, Endpoint};
@@ -37,7 +37,7 @@ impl QuincyClient {
 
         let assigned_address = auth_client.authenticate().await?;
 
-        debug!("Received TUN address: {assigned_address}");
+        info!("Received client address: {assigned_address}");
 
         let interface = set_up_interface(assigned_address, self.client_config.connection.mtu)?;
 
@@ -85,12 +85,14 @@ impl QuincyClient {
                 )
             })?;
 
-        info!("Connecting to '{}'", self.client_config.connection_string);
+        info!("Connecting: {}", self.client_config.connection_string);
+
         let connection = endpoint
             .connect_with(quinn_config, server_addr, server_hostname)?
             .await?;
+
         info!(
-            "Connection to '{}' established",
+            "Connection established: {}",
             self.client_config.connection_string
         );
 
@@ -103,7 +105,7 @@ impl QuincyClient {
     /// - `Endpoint` - the Quinn endpoint
     fn create_quinn_endpoint(&self) -> Result<Endpoint> {
         let bind_addr: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
-        info!("Local address: {:?}", bind_addr);
+        debug!("QUIC socket local address: {:?}", bind_addr);
 
         let socket = bind_socket(
             bind_addr,
@@ -111,7 +113,7 @@ impl QuincyClient {
             self.client_config.connection.recv_buffer_size as usize,
         )?;
 
-        let endpoint = Endpoint::new(Default::default(), None, socket, QUINCY_RUNTIME.clone())?;
+        let endpoint = Endpoint::new(Default::default(), None, socket, QUINN_RUNTIME.clone())?;
 
         Ok(endpoint)
     }
@@ -160,7 +162,8 @@ impl QuincyClient {
         mut read_interface: ReadHalf<AsyncDevice>,
         interface_mtu: usize,
     ) -> Result<()> {
-        debug!("Started send task");
+        debug!("Started outbound traffic task (interface -> QUIC tunnel)");
+
         loop {
             let quinn_mtu = connection
                 .max_datagram_size()
@@ -194,7 +197,8 @@ impl QuincyClient {
         mut write_interface: WriteHalf<AsyncDevice>,
         interface_mtu: usize,
     ) -> Result<()> {
-        debug!("Started recv task");
+        debug!("Started inbound traffic task (QUIC tunnel -> interface)");
+
         loop {
             let data = connection.read_datagram().await?;
 

@@ -20,7 +20,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::constants::QUINCY_RUNTIME;
+use crate::constants::{CLEANUP_INTERVAL, QUINN_RUNTIME};
 use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
@@ -28,6 +28,7 @@ type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
 
 /// Represents a Quincy tunnel encapsulating Quincy connections and TUN interface IO.
 pub struct QuincyTunnel {
+    name: String,
     tunnel_config: TunnelConfig,
     connection_config: ConnectionConfig,
     active_connections: SharedConnections,
@@ -41,9 +42,14 @@ impl QuincyTunnel {
     /// Creates a new instance of the Quincy tunnel.
     ///
     /// ### Arguments
+    /// = `name` - the name of the tunnel
     /// - `tunnel_config` - the tunnel configuration
     /// - `connection_config` - the connection configuration
-    pub fn new(tunnel_config: TunnelConfig, connection_config: &ConnectionConfig) -> Result<Self> {
+    pub fn new(
+        name: String,
+        tunnel_config: TunnelConfig,
+        connection_config: &ConnectionConfig,
+    ) -> Result<Self> {
         let interface_address =
             Ipv4Net::with_netmask(tunnel_config.address_tunnel, tunnel_config.address_mask)?.into();
 
@@ -51,6 +57,7 @@ impl QuincyTunnel {
         let address_pool = AddressPool::new(interface_address)?;
 
         Ok(Self {
+            name,
             tunnel_config,
             connection_config: connection_config.clone(),
             active_connections: Arc::new(DashMap::new()),
@@ -64,7 +71,7 @@ impl QuincyTunnel {
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
     pub async fn start(&mut self) -> Result<()> {
         if self.is_ok() {
-            return Err(anyhow!("This instance of Quincy tunnel is already running"));
+            return Err(anyhow!("Tunnel '{}' is already running", self.name));
         }
 
         let interface_address = Ipv4Net::with_netmask(
@@ -120,7 +127,7 @@ impl QuincyTunnel {
 
         while let Some(task) = self.tasks.pop() {
             if let Some(Err(e)) = join_or_abort_task(task, timeout).await {
-                error!("An error occurred in Quincy tunnel: {e}")
+                error!("An error occurred in tunnel '{}': {e}", self.name);
             }
         }
 
@@ -144,9 +151,8 @@ impl QuincyTunnel {
         connections: SharedConnections,
         address_pool: Arc<AddressPool>,
     ) -> Result<()> {
-        let cleanup_interval = Duration::from_secs(1);
+        debug!("Started tunnel connection cleanup worker");
 
-        debug!("Started connection cleanup worker");
         loop {
             let mut stale_connections = vec![];
 
@@ -169,7 +175,7 @@ impl QuincyTunnel {
                 address_pool.release_address(connection_addr);
             }
 
-            sleep(cleanup_interval).await;
+            sleep(CLEANUP_INTERVAL).await;
         }
     }
 
@@ -178,9 +184,9 @@ impl QuincyTunnel {
     /// ### Arguments
     /// - `active_connections` - a map of connections and their associated client IP addresses
     /// - `address_pool` - the address pool being used
-    /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
-    /// - `auth` - the authentication module
-    /// - `auth_timeout` - the configured auth timeout
+    /// - `write_queue_sender` - the channel for sending data to the TUN interface worker
+    /// - `user_database` - the user database
+    /// - `auth_timeout` - the timeout for authenticating a client
     /// - `endpoint` - the QUIC endpoint
     async fn handle_incoming_connections(
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
@@ -191,13 +197,13 @@ impl QuincyTunnel {
         endpoint: Endpoint,
     ) -> Result<()> {
         info!(
-            "Listening on {}",
+            "Listening for incoming connections: {}",
             endpoint.local_addr().expect("Endpoint has a local address")
         );
 
         while let Some(handshake) = endpoint.accept().await {
             debug!(
-                "Received incoming connection from {}",
+                "Received incoming connection from '{}'",
                 handshake.remote_address().ip()
             );
 
@@ -216,8 +222,8 @@ impl QuincyTunnel {
 
             connection.start().await?;
             info!(
-                "Accepted connection: Source = {}, Client IP = {client_tun_ip}",
-                connection.remote_address()
+                "Connection established: {client_tun_ip} ({})",
+                connection.remote_address(),
             );
 
             active_connections.insert(client_tun_ip.addr(), connection);
@@ -244,7 +250,7 @@ impl QuincyTunnel {
             Default::default(),
             Some(quinn_config),
             socket,
-            QUINCY_RUNTIME.clone(),
+            QUINN_RUNTIME.clone(),
         )?;
 
         Ok(endpoint)
@@ -261,7 +267,8 @@ impl QuincyTunnel {
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         buffer_size: usize,
     ) -> Result<()> {
-        debug!("Started incoming tunnel worker");
+        debug!("Started outbound traffic task (interface -> QUIC tunnel)");
+
         loop {
             let buf = read_from_interface(&mut tun_read, buffer_size).await?;
 
@@ -324,7 +331,8 @@ impl QuincyTunnel {
         mut tun_write: WriteHalf<AsyncDevice>,
         mut write_queue_receiver: UnboundedReceiver<Bytes>,
     ) -> Result<()> {
-        debug!("Started outgoing tunnel worker");
+        debug!("Started inbound traffic task (QUIC tunnel -> interface)");
+
         while let Some(buf) = write_queue_receiver.recv().await {
             debug!("Sent {} bytes to tunnel", buf.len());
             write_to_interface(&mut tun_write, buf).await?;

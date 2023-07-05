@@ -1,5 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bincode::config::{Configuration, Limit, LittleEndian, Varint};
 use once_cell::sync::Lazy;
@@ -22,6 +23,9 @@ pub const IPV6_ADDR_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
 
 /// Represents the default MTU overhead for QUIC.
 pub const QUIC_MTU_OVERHEAD: u16 = 42;
+
+/// Represents the interval used by various cleanup tasks.
+pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Represents the size of the packet info header on UNIX systems.
 #[cfg(target_os = "macos")]
@@ -55,4 +59,4 @@ pub static TLS_PROTOCOL_VERSIONS: &[&rustls::SupportedProtocolVersion] = &[&rust
 pub static TLS_ALPN_PROTOCOLS: Lazy<Vec<Vec<u8>>> = Lazy::new(|| vec![b"quincy".to_vec()]);
 
 /// Represents the async runtime used by Quinn.
-pub static QUINCY_RUNTIME: Lazy<Arc<dyn Runtime>> = Lazy::new(|| Arc::new(quinn::TokioRuntime));
+pub static QUINN_RUNTIME: Lazy<Arc<dyn Runtime>> = Lazy::new(|| Arc::new(quinn::TokioRuntime));

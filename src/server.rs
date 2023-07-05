@@ -1,11 +1,9 @@
-use std::time::Duration;
-
-use crate::config::ServerConfig;
 use crate::server::tunnel::QuincyTunnel;
+use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
 use anyhow::Result;
 use dashmap::DashMap;
 use tokio::time::sleep;
-use tracing::error;
+use tracing::{error, info};
 
 pub mod address_pool;
 pub mod connection;
@@ -25,7 +23,8 @@ impl QuincyServer {
         let tunnels = DashMap::new();
 
         for (name, tunnel_config) in config.tunnels.iter() {
-            let tunnel = QuincyTunnel::new(tunnel_config.clone(), &config.connection)?;
+            let tunnel =
+                QuincyTunnel::new(name.clone(), tunnel_config.clone(), &config.connection)?;
 
             tunnels.insert(name.clone(), tunnel);
         }
@@ -52,12 +51,15 @@ impl QuincyServer {
                     continue;
                 }
 
-                error!("Tunnel '{tunnel_name}' has crashed. Attempting to restart...");
+                error!("Tunnel '{tunnel_name}' encountered an error, restarting...");
+
                 tunnel.stop().await?;
                 tunnel.start().await?;
+
+                info!("Tunnel '{tunnel_name}' restarted successfully");
             }
 
-            sleep(Duration::from_secs(1)).await;
+            sleep(CLEANUP_INTERVAL).await;
         }
     }
 }

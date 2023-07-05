@@ -30,7 +30,7 @@ fn main() -> Result<()> {
         (true, false) => add_user(users)?,
         (false, true) => remove_user(users)?,
         _ => {
-            eprintln!("Either add xor delete switch must be specified");
+            eprintln!("Either add or delete switch must be specified");
             exit(1);
         }
     };
