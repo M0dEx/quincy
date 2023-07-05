@@ -20,7 +20,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::constants::QUINCY_RUNTIME;
+use crate::constants::{QUINN_RUNTIME, CLEANUP_INTERVAL};
 use tracing::{debug, error, info, warn};
 use tun::AsyncDevice;
 
@@ -169,7 +169,7 @@ impl QuincyTunnel {
                 address_pool.release_address(connection_addr);
             }
 
-            sleep(cleanup_interval).await;
+            sleep(CLEANUP_INTERVAL).await;
         }
     }
 
@@ -244,7 +244,7 @@ impl QuincyTunnel {
             Default::default(),
             Some(quinn_config),
             socket,
-            QUINCY_RUNTIME.clone(),
+            QUINN_RUNTIME.clone(),
         )?;
 
         Ok(endpoint)

@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use crate::config::ServerConfig;
+use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
 use crate::server::tunnel::QuincyTunnel;
 use anyhow::Result;
 use dashmap::DashMap;
@@ -57,7 +55,7 @@ impl QuincyServer {
                 tunnel.start().await?;
             }
 
-            sleep(Duration::from_secs(1)).await;
+            sleep(CLEANUP_INTERVAL).await;
         }
     }
 }
