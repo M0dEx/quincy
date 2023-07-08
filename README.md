@@ -217,8 +217,6 @@ certificate_key_file = "server_key.pem"
 
 **Client**
 ```toml
-# CLIENT
-
 [authentication]
 # A list of trusted certificates the server can use or have its certificate signed by
 trusted_certificates = ["ca_cert.pem"]
