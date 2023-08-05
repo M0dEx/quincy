@@ -5,8 +5,8 @@ use std::time::Duration;
 use bincode::config::{Configuration, Limit, LittleEndian, Varint};
 use once_cell::sync::Lazy;
 use quinn::Runtime;
-use rand_chacha::rand_core::SeedableRng;
-use rand_chacha::ChaCha20Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use tokio::sync::Mutex;
 
 /// Represents the size of the buffer used for bincode (de)serialization.
@@ -44,7 +44,7 @@ pub static BINCODE_CONFIG: Lazy<Configuration<LittleEndian, Varint, Limit<BINCOD
     Lazy::new(|| bincode::config::standard().with_limit::<BINCODE_BUFFER_SIZE>());
 
 /// Represents a cryptographically secure pseudo-random number generator based on ChaCha20.
-pub static CPRNG: Lazy<Mutex<ChaCha20Rng>> = Lazy::new(|| Mutex::new(ChaCha20Rng::from_entropy()));
+pub static CPRNG: Lazy<Mutex<StdRng>> = Lazy::new(|| Mutex::new(StdRng::from_entropy()));
 
 /// Represents the supported TLS cipher suites for Quincy.
 pub static QUINCY_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
