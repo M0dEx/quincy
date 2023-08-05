@@ -8,19 +8,15 @@ use crate::auth::SessionToken;
 use crate::constants::CPRNG;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
-use getset::Getters;
-use rand_chacha::rand_core::RngCore;
+use rand::RngCore;
+use time::{Duration, OffsetDateTime};
 
 /// Represents a Quincy user
-#[derive(Getters)]
 pub struct User {
-    #[get = "pub"]
-    username: String,
-    #[get = "pub"]
-    password_hash: String,
-    session_tokens: DashMap<SessionToken, DateTime<Utc>>,
+    pub username: String,
+    pub password_hash: String,
+    session_tokens: DashMap<SessionToken, OffsetDateTime>,
 }
 
 impl User {
@@ -46,7 +42,7 @@ impl User {
     /// - `true` if the session token is valid, `false` otherwise
     pub fn check_session_validity(&self, session_token: SessionToken) -> bool {
         let valid = match self.session_tokens.get(&session_token) {
-            Some(token) => &Utc::now() <= token.value(),
+            Some(token) => &OffsetDateTime::now_utc() <= token.value(),
             None => false,
         };
 
@@ -67,7 +63,7 @@ impl User {
 
         // TODO: Make this configurable
         self.session_tokens
-            .insert(session_token, Utc::now() + Duration::days(1));
+            .insert(session_token, OffsetDateTime::now_utc() + Duration::days(1));
 
         session_token
     }
@@ -127,7 +123,7 @@ impl UserDatabase {
             .users
             .get(username)
             .ok_or_else(|| anyhow!("Unknown user: {username}"))?;
-        let password_hash = PasswordHash::new(user.password_hash()).map_err(|err| {
+        let password_hash = PasswordHash::new(&user.password_hash).map_err(|err| {
             anyhow!("Could not parse user password hash for user '{username}': {err}")
         })?;
 
@@ -182,7 +178,7 @@ pub fn load_users_file(users_file: &Path) -> Result<DashMap<String, User>> {
 
     for line in lines {
         let user: User = line?.try_into()?;
-        result.insert(user.username().clone(), user);
+        result.insert(user.username.clone(), user);
     }
 
     Ok(result)
@@ -202,7 +198,7 @@ pub fn save_users_file(users_file: &Path, users: DashMap<String, User>) -> Resul
     let mut writer = BufWriter::new(file);
 
     for (username, user) in users {
-        writer.write_all(format!("{username}:{}\n", user.password_hash()).as_bytes())?;
+        writer.write_all(format!("{username}:{}\n", user.password_hash).as_bytes())?;
     }
 
     Ok(())
