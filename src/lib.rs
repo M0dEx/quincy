@@ -1,3 +1,5 @@
+#![feature(io_slice_advance)]
+
 pub mod auth;
 pub mod client;
 pub mod config;

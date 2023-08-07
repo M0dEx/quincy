@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use ipnet::IpNet;
+use std::io::IoSlice;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::{AsyncDevice, Configuration};
 
@@ -65,12 +66,10 @@ pub async fn read_from_interface(
 #[inline]
 pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: Bytes) -> Result<()> {
     #[cfg(target_os = "macos")]
-    let packet_data = prepend_packet_info_header(data)?;
+    write_with_packet_info_header(interface, data).await?;
 
     #[cfg(not(target_os = "macos"))]
-    let packet_data = data;
-
-    interface.write_all(&packet_data).await?;
+    interface.write_all(&data).await?;
 
     Ok(())
 }
@@ -84,7 +83,10 @@ pub async fn write_to_interface(interface: &mut WriteHalf<AsyncDevice>, data: By
 /// - `Bytes` - the prepended packet
 #[cfg(target_os = "macos")]
 #[inline]
-fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
+async fn write_with_packet_info_header(
+    interface: &mut WriteHalf<AsyncDevice>,
+    data: Bytes,
+) -> Result<()> {
     use crate::constants::DARWIN_PI_HEADER_IPV4;
     use crate::constants::DARWIN_PI_HEADER_IPV6;
     use anyhow::anyhow;
@@ -96,13 +98,19 @@ fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
         .ip
         .ok_or_else(|| anyhow!("Received packet with invalid IP header"))?;
 
-    let pi_header = match ip_header {
-        IpHeader::Version4(_, _) => Bytes::from_static(DARWIN_PI_HEADER_IPV4.as_ref()),
-        IpHeader::Version6(_, _) => Bytes::from_static(DARWIN_PI_HEADER_IPV6.as_ref()),
+    let packet_info_header = match ip_header {
+        IpHeader::Version4(_, _) => DARWIN_PI_HEADER_IPV4,
+        IpHeader::Version6(_, _) => DARWIN_PI_HEADER_IPV6,
     };
 
-    // TODO: Do not copy
-    Ok([pi_header.as_ref(), data.as_ref()].concat().into())
+    let mut packet_data = [IoSlice::new(&packet_info_header), IoSlice::new(&data)];
+
+    while !packet_data.is_empty() {
+        let written = interface.write_vectored(&packet_data).await?;
+        IoSlice::advance_slices(&mut packet_data.as_mut_slice(), written);
+    }
+
+    Ok(())
 }
 
 /// Truncates the packet info header from the packet.
