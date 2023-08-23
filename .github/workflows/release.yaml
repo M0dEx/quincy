@@ -1,12 +1,44 @@
 name: Publish release
 
 on:
+  push:
+    branches: ['main']
+    tags:
+      - 'v*'
   release:
     types: [created]
+  pull_request:
 
 jobs:
+  linux-release:
+    name: Release Linux x86_64
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout repository
+      - name: Print github.ref value
+        run: echo "github.ref = ${{ github.ref }}"        
+      - uses: Swatinem/rust-cache@v2
+        name: Cache toolchain and dependencies        
+      - name: Build-musl
+        uses: gmiam/rust-musl-action@master
+        with:
+          args: cargo build --target x86_64-unknown-linux-musl --release
+      - name: Prepare binaries
+        run: |
+          mkdir -p quincy-linux-binaries/x86_64-unknown-linux-musl
+          cp target/x86_64-unknown-linux-musl/release/quincy-client quincy-linux-binaries/x86_64-unknown-linux-musl/
+          cp target/x86_64-unknown-linux-musl/release/quincy-server quincy-linux-binaries/x86_64-unknown-linux-musl/
+          cp target/x86_64-unknown-linux-musl/release/quincy-users quincy-linux-binaries/x86_64-unknown-linux-musl/
+          tar zcf quincy-linux-x86_64.tar.gz -C quincy-linux-binaries/x86_64-unknown-linux-musl .
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: quincy-linux-x86_64.tar.gz
   release:
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/main')
     steps:
       - uses: actions/checkout@v2
         name: Checkout repository
@@ -22,3 +54,6 @@ jobs:
         name: Publish crate
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+permissions:
+  contents: write
