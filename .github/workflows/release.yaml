@@ -7,7 +7,6 @@ on:
       - 'v*'
   release:
     types: [created]
-  pull_request:
 
 jobs:
   linux-release:
