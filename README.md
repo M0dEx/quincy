@@ -3,6 +3,7 @@
 [![Documentation](https://docs.rs/quincy/badge.svg)](https://docs.rs/quincy/)
 [![Build status](https://github.com/M0dEx/quincy/workflows/CI/badge.svg)](https://github.com/M0dEx/quincy/actions?query=workflow%3ACI)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
+[![Matrix](https://img.shields.io/badge/chat-%23quincy:matrix.org-%2346BC99?logo=matrix)](https://matrix.to/#/#quincy:matrix.org)
 
 Quincy is a VPN client and server implementation using the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol.
 
