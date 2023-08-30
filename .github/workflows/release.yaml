@@ -5,8 +5,11 @@ on:
     types: [created]
 
 jobs:
-  release:
+  publish-crate:
+    name: Publish crate
+
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v2
         name: Checkout repository
@@ -22,3 +25,36 @@ jobs:
         name: Publish crate
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  build-linux-binaries:
+    name: Build x86_64 Linux binaries
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout repository
+      - uses: actions-rs/toolchain@v1
+        name: Set up toolchain
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        name: Cache toolchain and dependencies
+      - name: Build x86_64 Linux binaries
+        run: |
+          cargo build --release
+          mkdir ./quincy-linux-x86_64
+          cp target/release/quincy-client quincy-linux-x86_64/
+          cp target/release/quincy-server quincy-linux-x86_64/
+          cp target/release/quincy-users quincy-linux-x86_64/
+          tar zcf quincy-linux-x86_64.tar.gz -C quincy-linux-x86_64 .
+      - uses: softprops/action-gh-release@v1
+        name: Add binary to release
+        with:
+          files: |
+            quincy-linux-x86_64.tar.gz
