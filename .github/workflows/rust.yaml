@@ -7,6 +7,8 @@ on:
 
 jobs:
   test:
+    name: Test crate
+
     strategy:
       matrix:
 #        unnecessary until macos-latest runs on arm64 arch
@@ -37,6 +39,8 @@ jobs:
           command: test
 
   lint:
+    name: Check code style
+
     strategy:
       matrix:
 #        unnecessary until macos-latest runs on arm64 arch
