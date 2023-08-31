@@ -4,19 +4,14 @@ use std::{
     path::Path,
 };
 
-use crate::auth::SessionToken;
-use crate::constants::CPRNG;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use dashmap::DashMap;
-use rand::RngCore;
-use time::{Duration, OffsetDateTime};
 
 /// Represents a Quincy user
 pub struct User {
     pub username: String,
     pub password_hash: String,
-    session_tokens: DashMap<SessionToken, OffsetDateTime>,
 }
 
 impl User {
@@ -29,48 +24,7 @@ impl User {
         Self {
             username,
             password_hash,
-            session_tokens: DashMap::new(),
         }
-    }
-
-    /// Checks whether a given session token is valid for this user.
-    ///
-    /// ### Arguments
-    /// - `session_token` - a session token
-    ///
-    /// ### Returns
-    /// - `true` if the session token is valid, `false` otherwise
-    pub fn check_session_validity(&self, session_token: SessionToken) -> bool {
-        let valid = match self.session_tokens.get(&session_token) {
-            Some(token) => &OffsetDateTime::now_utc() <= token.value(),
-            None => false,
-        };
-
-        if !valid {
-            self.session_tokens.remove(&session_token);
-        }
-
-        valid
-    }
-
-    /// Creates a new session for this users and returns the created session token.
-    ///
-    /// ### Returns
-    /// `Bytes` containing the session token
-    pub async fn new_session(&self) -> SessionToken {
-        let mut session_token: SessionToken = SessionToken::default();
-        CPRNG.lock().await.fill_bytes(&mut session_token);
-
-        // TODO: Make this configurable
-        self.session_tokens
-            .insert(session_token, OffsetDateTime::now_utc() + Duration::days(1));
-
-        session_token
-    }
-
-    /// Resets the user's active sessions.
-    pub fn reset(&self) {
-        self.session_tokens.clear();
     }
 }
 
@@ -118,7 +72,7 @@ impl UserDatabase {
     ///
     /// ### Returns
     /// - `Bytes` containing the session token
-    pub async fn authenticate(&self, username: &str, password: String) -> Result<SessionToken> {
+    pub async fn authenticate(&self, username: &str, password: String) -> Result<()> {
         let user = self
             .users
             .get(username)
@@ -131,35 +85,7 @@ impl UserDatabase {
             .verify_password(password.as_bytes(), &password_hash)
             .map_err(|err| anyhow!("Failed to verify password for user {username}: {err}"))?;
 
-        Ok(user.new_session().await)
-    }
-
-    /// Verifies the given session token for the specified user.
-    ///
-    /// ### Arguments
-    /// - `username` - the username
-    /// - `session_token` - the session token
-    ///
-    /// ### Returns
-    /// - `true` if the session token is valid, `false` otherwise
-    pub fn verify_session_token(
-        &self,
-        username: &str,
-        session_token: SessionToken,
-    ) -> Result<bool> {
-        let user = self
-            .users
-            .get(username)
-            .ok_or_else(|| anyhow!("Unknown user: {username}"))?;
-
-        Ok(user.check_session_validity(session_token))
-    }
-
-    /// Resets all user sessions.
-    pub fn reset(&self) {
-        for entry in self.users.iter() {
-            entry.value().reset();
-        }
+        Ok(())
     }
 }
 
@@ -227,10 +153,7 @@ mod tests {
         users.insert(username.clone(), test_user);
 
         let user_db = UserDatabase::new(users);
-        let session_token = tokio_test::block_on(user_db.authenticate(&username, password))
+        tokio_test::block_on(user_db.authenticate(&username, password))
             .expect("Credentials are valid");
-        assert!(user_db
-            .verify_session_token(&username, session_token)
-            .expect("User exists"))
     }
 }

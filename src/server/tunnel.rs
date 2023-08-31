@@ -107,10 +107,10 @@ impl QuincyTunnel {
         self.tasks
             .push(tokio::spawn(Self::handle_incoming_connections(
                 self.active_connections.clone(),
+                self.connection_config.clone(),
                 self.address_pool.clone(),
                 Arc::new(sender),
                 self.user_database.clone(),
-                self.tunnel_config.auth_timeout,
                 endpoint,
             )));
 
@@ -122,7 +122,6 @@ impl QuincyTunnel {
         let timeout = Duration::from_secs(1);
 
         self.active_connections.clear();
-        self.user_database.reset();
         self.address_pool.reset();
 
         while let Some(task) = self.tasks.pop() {
@@ -183,17 +182,17 @@ impl QuincyTunnel {
     ///
     /// ### Arguments
     /// - `active_connections` - a map of connections and their associated client IP addresses
+    /// - `connection_config` - the connection configuration
     /// - `address_pool` - the address pool being used
     /// - `write_queue_sender` - the channel for sending data to the TUN interface worker
     /// - `user_database` - the user database
-    /// - `auth_timeout` - the timeout for authenticating a client
     /// - `endpoint` - the QUIC endpoint
     async fn handle_incoming_connections(
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+        connection_config: ConnectionConfig,
         address_pool: Arc<AddressPool>,
         write_queue_sender: Arc<UnboundedSender<Bytes>>,
         user_database: Arc<UserDatabase>,
-        auth_timeout: u32,
         endpoint: Endpoint,
     ) -> Result<()> {
         info!(
@@ -213,9 +212,9 @@ impl QuincyTunnel {
 
             let mut connection = QuincyConnection::new(
                 handshake.await?,
+                &connection_config,
                 write_queue_sender.clone(),
                 user_database.clone(),
-                auth_timeout,
                 client_tun_ip,
             )
             .await?;

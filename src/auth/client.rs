@@ -1,26 +1,18 @@
-use std::time::Duration;
-
-use anyhow::{anyhow, Result};
-use bincode::{Decode, Encode};
+use anyhow::{anyhow, Context, Result};
+use bytes::BytesMut;
 use ipnet::IpNet;
 use quinn::{Connection, RecvStream, SendStream};
-use tokio::time::sleep;
+use serde::{Deserialize, Serialize};
+use tokio::io::AsyncReadExt;
 
-use crate::{
-    config::ClientAuthenticationConfig,
-    utils::{
-        serde::ip_addr_from_bytes,
-        streams::{AsyncReceiveBincode, AsyncSendBincode},
-    },
-};
+use crate::config::ClientAuthenticationConfig;
 
-use super::{server::AuthServerMessage, SessionToken};
+use super::server::AuthServerMessage;
 
 /// Represents an authentication message sent by the client.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthClientMessage {
     Authentication(String, String),
-    SessionToken(SessionToken),
 }
 
 /// Represents an authentication client handling initial authentication and session management.
@@ -29,8 +21,6 @@ pub struct AuthClient {
     recv_stream: RecvStream,
     username: String,
     password: String,
-    auth_interval: Duration,
-    session_token: Option<SessionToken>,
 }
 
 impl AuthClient {
@@ -45,8 +35,6 @@ impl AuthClient {
             recv_stream: recv,
             username: authentication_config.username.clone(),
             password: authentication_config.password.clone(),
-            auth_interval: Duration::from_secs(authentication_config.auth_interval as u64),
-            session_token: None,
         })
     }
 
@@ -58,17 +46,12 @@ impl AuthClient {
         let basic_auth =
             AuthClientMessage::Authentication(self.username.clone(), self.password.clone());
 
-        self.send_stream.send_message(basic_auth).await?;
-        let auth_response = self.recv_stream.receive_message().await?;
+        self.send_message(basic_auth).await?;
+        let auth_response = self.recv_message().await?;
 
         match auth_response {
-            Some(AuthServerMessage::Authenticated(addr_data, netmask_data, session_token)) => {
-                let address = IpNet::with_netmask(
-                    ip_addr_from_bytes(&addr_data)?,
-                    ip_addr_from_bytes(&netmask_data)?,
-                )?;
-
-                self.session_token = Some(session_token);
+            Some(AuthServerMessage::Authenticated(addr, netmask)) => {
+                let address = IpNet::with_netmask(addr, netmask)?;
 
                 Ok(address)
             }
@@ -76,26 +59,19 @@ impl AuthClient {
         }
     }
 
-    /// Sends the session token with the configured interval to maintain the established session.
-    pub async fn maintain_session(&mut self) -> Result<()> {
-        let session_token_msg = self
-            .session_token
-            .map(AuthClientMessage::SessionToken)
-            .ok_or_else(|| anyhow!("Cannot maintain session without a session token"))?;
+    #[inline]
+    async fn send_message(&mut self, message: AuthClientMessage) -> Result<()> {
+        self.send_stream
+            .write_all(&serde_json::to_vec(&message)?)
+            .await
+            .context("Failed to send AuthServerMessage")
+    }
 
-        loop {
-            self.send_stream
-                .send_message(session_token_msg.clone())
-                .await?;
+    #[inline]
+    async fn recv_message(&mut self) -> Result<Option<AuthServerMessage>> {
+        let mut buf = BytesMut::with_capacity(1024);
+        self.recv_stream.read_buf(&mut buf).await?;
 
-            let auth_response = self.recv_stream.receive_message().await?;
-
-            match auth_response {
-                Some(AuthServerMessage::Ok) => {}
-                _ => return Err(anyhow!("Session died")),
-            }
-
-            sleep(self.auth_interval).await;
-        }
+        serde_json::from_slice(&buf).context("Failed to parse AuthClientMessage")
     }
 }

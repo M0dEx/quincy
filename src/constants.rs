@@ -2,12 +2,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bincode::config::{Configuration, Limit, LittleEndian, Varint};
 use once_cell::sync::Lazy;
 use quinn::Runtime;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-use tokio::sync::Mutex;
 
 /// Represents the size of the buffer used for bincode (de)serialization.
 pub const BINCODE_BUFFER_SIZE: usize = 128;
@@ -38,13 +34,6 @@ pub const DARWIN_PI_HEADER_IPV4: [u8; 4] = [0_u8, 0_u8, 0_u8, libc::AF_INET as u
 /// Represents MacOS packet info header for IPv6
 #[cfg(target_os = "macos")]
 pub const DARWIN_PI_HEADER_IPV6: [u8; 4] = [0_u8, 0_u8, 0_u8, libc::AF_INET6 as u8];
-
-/// Represents the BINCODE configuration used for (de)serialization.
-pub static BINCODE_CONFIG: Lazy<Configuration<LittleEndian, Varint, Limit<BINCODE_BUFFER_SIZE>>> =
-    Lazy::new(|| bincode::config::standard().with_limit::<BINCODE_BUFFER_SIZE>());
-
-/// Represents a cryptographically secure pseudo-random number generator based on ChaCha20.
-pub static CPRNG: Lazy<Mutex<StdRng>> = Lazy::new(|| Mutex::new(StdRng::from_entropy()));
 
 /// Represents the supported TLS cipher suites for Quincy.
 pub static QUINCY_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
