@@ -1,17 +1,13 @@
-use std::{sync::Arc, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Result};
-use bincode::{Decode, Encode};
+use anyhow::{anyhow, Context, Result};
+use bytes::BytesMut;
 use ipnet::IpNet;
 use quinn::{Connection, RecvStream, SendStream, VarInt};
-use tokio::{sync::RwLock, time::timeout};
+use serde::{Deserialize, Serialize};
+use tokio::{io::AsyncReadExt, sync::RwLock, time::timeout};
 
-use crate::utils::{
-    serde::ip_addr_to_bytes,
-    streams::{AsyncReceiveBincode, AsyncSendBincode},
-};
-
-use super::{client::AuthClientMessage, user::UserDatabase, SessionToken};
+use super::{client::AuthClientMessage, user::UserDatabase};
 
 /// Represents the internal authentication state for a session.
 #[derive(Clone, Debug, PartialEq)]
@@ -21,9 +17,9 @@ pub enum AuthState {
 }
 
 /// Represents an authentication message sent by the server.
-#[derive(Encode, Decode)]
+#[derive(Serialize, Deserialize)]
 pub enum AuthServerMessage {
-    Authenticated(Vec<u8>, Vec<u8>, SessionToken),
+    Authenticated(IpAddr, IpAddr),
     Ok,
     Failed,
 }
@@ -31,12 +27,12 @@ pub enum AuthServerMessage {
 /// Represents an authentication server handling initial authentication and session management.
 pub struct AuthServer {
     user_database: Arc<UserDatabase>,
-    auth_timeout: Duration,
     auth_state: RwLock<AuthState>,
     client_address: IpNet,
     connection: Arc<Connection>,
-    send_stream: RwLock<SendStream>,
-    recv_stream: RwLock<RecvStream>,
+    send_stream: SendStream,
+    recv_stream: RecvStream,
+    auth_timeout: Duration,
 }
 
 impl AuthServer {
@@ -46,112 +42,73 @@ impl AuthServer {
         client_address: IpNet,
         auth_timeout: Duration,
     ) -> Result<Self> {
-        let (send, recv) = connection.accept_bi().await?;
+        let (send_stream, recv_stream) = connection.accept_bi().await?;
 
         Ok(Self {
             user_database,
-            auth_timeout,
             auth_state: RwLock::new(AuthState::Unauthenticated),
             client_address,
             connection,
-            send_stream: RwLock::new(send),
-            recv_stream: RwLock::new(recv),
+            send_stream,
+            recv_stream,
+            auth_timeout,
         })
     }
 
     /// Handles authentication for a client.
-    pub async fn handle_authentication(&self) -> Result<()> {
-        loop {
-            let message: Option<AuthClientMessage> =
-                timeout(self.auth_timeout, self.recv_message())
-                    .await?
-                    .ok()
-                    .flatten();
+    pub async fn handle_authentication(&mut self) -> Result<()> {
+        let message: Option<AuthClientMessage> = timeout(self.auth_timeout, self.recv_message())
+            .await?
+            .ok()
+            .flatten();
 
-            let state = self.get_state().await;
+        let state = self.get_state().await;
 
-            match (state, message) {
-                (
-                    AuthState::Unauthenticated,
-                    Some(AuthClientMessage::Authentication(username, password)),
-                ) => self.authenticate_user(username, password).await?,
-                (
-                    AuthState::Authenticated(username),
-                    Some(AuthClientMessage::SessionToken(token)),
-                ) => self.verify_session_token(&username, token).await?,
-                (_, None) => self.handle_timeout().await?,
-                _ => self.handle_failure().await?,
-            }
+        match (state, message) {
+            (
+                AuthState::Unauthenticated,
+                Some(AuthClientMessage::Authentication(username, password)),
+            ) => self.authenticate_user(username, password).await,
+            _ => self.handle_failure().await,
         }
-    }
-
-    pub async fn get_state(&self) -> AuthState {
-        self.auth_state.read().await.clone()
     }
 
     /// Authenticates a user with the given username and password.
-    async fn authenticate_user(&self, username: String, password: String) -> Result<()> {
-        match self.user_database.authenticate(&username, password).await {
-            Ok(session_token) => {
-                let response = AuthServerMessage::Authenticated(
-                    ip_addr_to_bytes(self.client_address.addr()),
-                    ip_addr_to_bytes(self.client_address.netmask()),
-                    session_token,
-                );
-
-                self.send_message(response).await?;
-                self.set_state(AuthState::Authenticated(username)).await;
-
-                Ok(())
-            }
-            Err(_) => {
-                self.close_connection("Invalid username or password")
-                    .await?;
-
-                Err(anyhow!("Invalid username or password"))
-            }
-        }
-    }
-
-    /// Verifies the sessions token sent by the user.
-    async fn verify_session_token(
-        &self,
-        username: &str,
-        session_token: SessionToken,
-    ) -> Result<()> {
+    async fn authenticate_user(&mut self, username: String, password: String) -> Result<()> {
         if self
             .user_database
-            .verify_session_token(username, session_token)?
+            .authenticate(&username, password)
+            .await
+            .is_err()
         {
-            self.send_message(AuthServerMessage::Ok).await?;
+            self.close_connection("Invalid username or password")
+                .await?;
 
-            Ok(())
-        } else {
-            self.send_message(AuthServerMessage::Failed).await?;
-            self.close_connection("Invalid session token").await?;
-
-            Err(anyhow!("Invalid session token"))
+            return Err(anyhow!("Invalid username or password"));
         }
-    }
 
-    /// Handles a timeout during authentication.
-    async fn handle_timeout(&self) -> Result<()> {
-        self.close_connection("Authentication timed out").await?;
+        let response = AuthServerMessage::Authenticated(
+            self.client_address.addr(),
+            self.client_address.netmask(),
+        );
 
-        Err(anyhow!("Authentication timed out"))
+        self.send_message(response).await?;
+        self.set_state(AuthState::Authenticated(username)).await;
+
+        Ok(())
     }
 
     /// Handles a failure during authentication.
-    async fn handle_failure(&self) -> Result<()> {
+    async fn handle_failure(&mut self) -> Result<()> {
         self.close_connection("Authentication failed").await?;
 
         Err(anyhow!("Authentication failed"))
     }
 
     /// Closes the connection with the given reason.
-    async fn close_connection(&self, reason: &str) -> Result<()> {
+    async fn close_connection(&mut self, reason: &str) -> Result<()> {
         self.send_message(AuthServerMessage::Failed).await?;
-        self.send_stream.write().await.finish().await?;
+        self.send_stream.finish().await?;
 
         self.connection
             .close(VarInt::from_u32(0x01), reason.as_bytes());
@@ -161,14 +118,24 @@ impl AuthServer {
         Ok(())
     }
 
-    async fn send_message(&self, message: AuthServerMessage) -> Result<()> {
-        self.send_stream.write().await.send_message(message).await?;
-
-        Ok(())
+    #[inline]
+    async fn send_message(&mut self, message: AuthServerMessage) -> Result<()> {
+        self.send_stream
+            .write_all(&serde_json::to_vec(&message)?)
+            .await
+            .context("Failed to send AuthServerMessage")
     }
 
-    async fn recv_message(&self) -> Result<Option<AuthClientMessage>> {
-        self.recv_stream.write().await.receive_message().await
+    #[inline]
+    async fn recv_message(&mut self) -> Result<Option<AuthClientMessage>> {
+        let mut buf = BytesMut::with_capacity(1024);
+        self.recv_stream.read_buf(&mut buf).await?;
+
+        serde_json::from_slice(&buf).context("Failed to parse AuthClientMessage")
+    }
+
+    pub async fn get_state(&self) -> AuthState {
+        self.auth_state.read().await.clone()
     }
 
     async fn set_state(&self, state: AuthState) {

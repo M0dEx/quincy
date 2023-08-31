@@ -3,15 +3,15 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use quinn::{MtuDiscoveryConfig, TransportConfig, VarInt};
+use quinn::{MtuDiscoveryConfig, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::hash_map::Entry, time::Duration};
 
 use crate::constants::{
     QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
@@ -52,9 +52,6 @@ pub struct TunnelConfig {
     pub address_mask: Ipv4Addr,
     /// A path to a file containing a list of users and their password hashes
     pub users_file: PathBuf,
-    #[serde(default = "default_auth_timeout")]
-    /// The amount of time in seconds to wait for authentication before closing the connection
-    pub auth_timeout: u32,
 }
 
 /// Represents the configuration for a Quincy client.
@@ -79,9 +76,6 @@ pub struct ClientAuthenticationConfig {
     pub password: String,
     /// A list of trusted certificates
     pub trusted_certificates: Vec<PathBuf>,
-    /// The interval at which to send the session token
-    #[serde(default = "default_auth_timeout")]
-    pub auth_interval: u32,
 }
 
 /// Represents miscellaneous connection configuration.
@@ -89,6 +83,12 @@ pub struct ClientAuthenticationConfig {
 pub struct ConnectionConfig {
     /// The MTU to use for connections and the TUN interface
     pub mtu: u32,
+    /// Timeout
+    #[serde(default = "default_timeout")]
+    pub timeout: Duration,
+    /// Keep alive interval
+    #[serde(default = "default_keep_alive_interval")]
+    pub keep_alive_interval: Duration,
     /// The size of the send buffer of the socket and Quinn endpoint
     #[serde(default = "default_buffer_size")]
     pub send_buffer_size: u64,
@@ -187,8 +187,12 @@ fn default_buffer_size() -> u64 {
     2097152
 }
 
-fn default_auth_timeout() -> u32 {
-    120
+fn default_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_keep_alive_interval() -> Duration {
+    Duration::from_secs(25)
 }
 
 impl ClientConfig {
@@ -230,9 +234,8 @@ impl ClientConfig {
         let mut transport_config = TransportConfig::default();
         let mut mtu_config = MtuDiscoveryConfig::default();
 
-        transport_config.max_idle_timeout(Some(
-            VarInt::from_u32(self.authentication.auth_interval * 2 * 1_000).into(),
-        ));
+        transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
+        transport_config.keep_alive_interval(Some(self.connection.keep_alive_interval));
 
         mtu_config.upper_bound(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
 
@@ -273,8 +276,7 @@ impl TunnelConfig {
         let mut transport_config = TransportConfig::default();
         let mut mtu_config = MtuDiscoveryConfig::default();
 
-        transport_config
-            .max_idle_timeout(Some(VarInt::from_u32(self.auth_timeout * 2 * 1_000).into()));
+        transport_config.max_idle_timeout(Some(connection_config.timeout.try_into()?));
 
         mtu_config.upper_bound(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
 

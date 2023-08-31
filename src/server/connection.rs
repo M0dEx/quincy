@@ -1,6 +1,6 @@
 use crate::auth::server::{AuthServer, AuthState};
 use crate::auth::user::UserDatabase;
-use crate::constants::AUTH_TIMEOUT_GRACE;
+use crate::config::ConnectionConfig;
 use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -8,14 +8,12 @@ use delegate::delegate;
 use ipnet::IpNet;
 
 use quinn::Connection;
-use quinn::SendDatagramError;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tracing::log::warn;
 use tracing::{debug, error};
 
 /// Represents a Quincy connection encapsulating authentication and IO.
@@ -37,18 +35,17 @@ impl QuincyConnection {
     /// - `client_address` - the assigned client address
     pub async fn new(
         connection: Connection,
+        connection_config: &ConnectionConfig,
         tun_queue: Arc<UnboundedSender<Bytes>>,
         user_database: Arc<UserDatabase>,
-        auth_timeout: u32,
         client_address: IpNet,
     ) -> Result<Self> {
         let connection = Arc::new(connection);
-        let auth_timeout = Duration::from_secs(auth_timeout as u64 + AUTH_TIMEOUT_GRACE);
         let auth_server = AuthServer::new(
             user_database,
             connection.clone(),
             client_address,
-            auth_timeout,
+            connection_config.timeout,
         )
         .await?;
 
@@ -67,10 +64,6 @@ impl QuincyConnection {
                 "This instance of Quincy connection is already running"
             ));
         }
-
-        self.tasks.push(tokio::spawn(Self::handle_authentication(
-            self.auth_server.clone(),
-        )));
 
         self.tasks.push(tokio::spawn(Self::process_incoming_data(
             self.connection.clone(),
@@ -106,15 +99,14 @@ impl QuincyConnection {
     ///
     /// ### Arguments
     /// - `data` - the data to be sent
-    pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
+    pub async fn send_datagram(&self, data: Bytes) -> Result<()> {
         match self.auth_server.read().await.get_state().await {
             AuthState::Authenticated(_) => (),
             _ => {
-                warn!(
-                    "Connection {:?} not authenticated, dropping outgoing data",
+                return Err(anyhow!(
+                    "Attempted to send datagram to unauthenticated client {:?}",
                     self.connection.remote_address(),
-                );
-                return Ok(());
+                ))
             }
         }
 
@@ -141,15 +133,16 @@ impl QuincyConnection {
         tun_queue: Arc<UnboundedSender<Bytes>>,
         auth_server: Arc<RwLock<AuthServer>>,
     ) -> Result<()> {
+        Self::handle_authentication(&auth_server).await?;
+
         loop {
             match auth_server.read().await.get_state().await {
                 AuthState::Authenticated(_) => (),
                 _ => {
-                    warn!(
+                    return Err(anyhow!(
                         "Connection {:?} not authenticated, dropping incoming data",
                         connection.remote_address(),
-                    );
-                    continue;
+                    ))
                 }
             }
 
@@ -164,8 +157,8 @@ impl QuincyConnection {
         }
     }
 
-    async fn handle_authentication(auth_server: Arc<RwLock<AuthServer>>) -> Result<()> {
-        let auth_server = auth_server.read().await;
+    async fn handle_authentication(auth_server: &Arc<RwLock<AuthServer>>) -> Result<()> {
+        let mut auth_server = auth_server.write().await;
         auth_server.handle_authentication().await
     }
 }

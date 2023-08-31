@@ -41,14 +41,12 @@ impl QuincyClient {
 
         let interface = set_up_interface(assigned_address, self.client_config.connection.mtu)?;
 
-        try_join!(
-            auth_client.maintain_session(),
-            self.relay_packets(
-                connection,
-                interface,
-                self.client_config.connection.mtu as usize
-            ),
-        )?;
+        self.relay_packets(
+            connection,
+            interface,
+            self.client_config.connection.mtu as usize,
+        )
+        .await?;
 
         Ok(())
     }
