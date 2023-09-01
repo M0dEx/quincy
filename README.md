@@ -17,7 +17,7 @@ This tunnel serves two purposes:
 After a connection is established and the client is authenticated, a TUN interface is spawned using an IP address provided by the server.
 
 When all is set up, multiple tasks are spawned (on both the client and the server), with 2 of them being the most important:
-- authentication task - responsible for sending the session token in the specified interval
+- authentication task - responsible for authenticating the user and sending them a client IP
 - connection task - responsible for relaying packets between the TUN interface and the QUIC tunnel
 
 These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/tokio) runtime for added efficiency and throughput.
@@ -28,6 +28,8 @@ These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/toki
 - [X] MacOS
 
 ## Installation
+Binaries are at the moment available for Linux x86_64 and are attached to every release from 0.2.0 on GitHub.
+
 Using cargo, installation of published version can be done with a simple command:
 ```bash
 $ cargo install quincy
