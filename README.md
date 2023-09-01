@@ -16,11 +16,9 @@ This tunnel serves two purposes:
 
 After a connection is established and the client is authenticated, a TUN interface is spawned using an IP address provided by the server.
 
-When all is set up, multiple tasks are spawned (on both the client and the server), with 2 of them being the most important:
-- authentication task - responsible for authenticating the user and sending them a client IP
-- connection task - responsible for relaying packets between the TUN interface and the QUIC tunnel
+When all is set up, a connection task is spawned, which handles IO on the TUN interface and the QUIC connection, effectively relaying packets between them.
 
-These tasks run in parallel using the [`tokio`](https://github.com/tokio-rs/tokio) runtime for added efficiency and throughput.
+The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an efficient and scalable implementation.
 
 ## Supported platforms
 - [ ] Windows
