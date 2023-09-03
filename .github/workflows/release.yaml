@@ -13,12 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         name: Checkout repository
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         name: Set up toolchain
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - uses: katyo/publish-crates@v2
@@ -37,12 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         name: Checkout repository
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         name: Set up toolchain
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - name: Build x86_64 Linux binaries
