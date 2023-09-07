@@ -245,8 +245,9 @@ impl QuincyTunnel {
             self.connection_config.recv_buffer_size as usize,
         )?;
 
+        let endpoint_config = self.connection_config.as_endpoint_config()?;
         let endpoint = Endpoint::new(
-            Default::default(),
+            endpoint_config,
             Some(quinn_config),
             socket,
             QUINN_RUNTIME.clone(),
