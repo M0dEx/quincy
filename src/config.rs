@@ -3,7 +3,7 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use quinn::{MtuDiscoveryConfig, TransportConfig};
+use quinn::{EndpointConfig, MtuDiscoveryConfig, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -284,5 +284,14 @@ impl TunnelConfig {
         quinn_config.transport_config(Arc::new(transport_config));
 
         Ok(quinn_config)
+    }
+}
+
+impl ConnectionConfig {
+    pub fn as_endpoint_config(&self) -> Result<EndpointConfig> {
+        let mut endpoint_config = EndpointConfig::default();
+        endpoint_config.max_udp_payload_size(self.mtu as u16 + QUIC_MTU_OVERHEAD)?;
+
+        Ok(endpoint_config)
     }
 }
