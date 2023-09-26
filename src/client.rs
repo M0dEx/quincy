@@ -11,7 +11,6 @@ use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
 use std::sync::Arc;
 use tokio::io::{ReadHalf, WriteHalf};
-use tokio::try_join;
 use tracing::{debug, info, warn};
 use tun::AsyncDevice;
 
@@ -131,17 +130,21 @@ impl QuincyClient {
         let connection = Arc::new(connection);
         let (read, write) = tokio::io::split(interface);
 
-        let (outbound_task, inbound_task) = try_join!(
-            tokio::spawn(Self::process_outbound_traffic(
-                connection.clone(),
-                read,
-                interface_mtu
-            )),
-            tokio::spawn(Self::process_inbound_traffic(connection.clone(), write,)),
-        )?;
+        let inbound_task = tokio::spawn(Self::process_inbound_traffic(connection.clone(), write));
+        let outgoing_task = tokio::spawn(Self::process_outgoing_traffic(
+            connection.clone(),
+            read,
+            interface_mtu,
+        ));
 
-        inbound_task?;
-        outbound_task?;
+        tokio::select! {
+            inbound_result = inbound_task => {
+                inbound_result??;
+            }
+            outgoing_result = outgoing_task => {
+                outgoing_result??;
+            }
+        }
 
         Ok(())
     }
@@ -152,12 +155,12 @@ impl QuincyClient {
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
     /// - `read_interface` - the read half of the TUN interface
     /// - `interface_mtu` - the MTU of the TUN interface
-    async fn process_outbound_traffic(
+    async fn process_outgoing_traffic(
         connection: Arc<Connection>,
         mut read_interface: ReadHalf<AsyncDevice>,
         interface_mtu: usize,
     ) -> Result<()> {
-        debug!("Started outbound traffic task (interface -> QUIC tunnel)");
+        debug!("Started outgoing traffic task (interface -> QUIC tunnel)");
 
         loop {
             let quinn_mtu = connection
