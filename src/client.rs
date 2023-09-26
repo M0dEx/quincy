@@ -163,11 +163,11 @@ impl QuincyClient {
         debug!("Started outgoing traffic task (interface -> QUIC tunnel)");
 
         loop {
+            let data = read_from_interface(&mut read_interface, interface_mtu).await?;
+
             let quinn_mtu = connection
                 .max_datagram_size()
                 .ok_or_else(|| anyhow!("The Quincy server does not support datagram transfer"))?;
-
-            let data = read_from_interface(&mut read_interface, interface_mtu).await?;
 
             if data.len() > quinn_mtu {
                 warn!(
