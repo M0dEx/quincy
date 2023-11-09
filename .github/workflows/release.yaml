@@ -50,3 +50,35 @@ jobs:
         with:
           files: |
             quincy-linux-x86_64.tar.gz
+
+  build-windows-binaries:
+    name: Build x86_64 Windows binaries
+
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout repository
+      - uses: dtolnay/rust-toolchain@stable
+        name: Set up toolchain
+      - uses: Swatinem/rust-cache@v2
+        name: Cache toolchain and dependencies
+      - name: Build x86_64 Windows binaries
+        run: |
+          cargo build --release
+          Invoke-WebRequest https://www.wintun.net/builds/wintun-0.14.1.zip -OutFile wintun.zip
+          7z x wintun.zip
+          mkdir ./quincy-windows-x86_64
+          cp wintun/bin/amd64/wintun.dll quincy-windows-x86_64/
+          cp target/release/quincy-client.exe quincy-windows-x86_64/
+          cp target/release/quincy-server.exe quincy-windows-x86_64/
+          cp target/release/quincy-users.exe quincy-windows-x86_64/
+          7z a quincy-windows-x86_64.zip quincy-windows-x86_64
+      - uses: softprops/action-gh-release@v1
+        name: Add binary to release
+        with:
+          files: |
+            quincy-windows-x86_64.zip
