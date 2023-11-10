@@ -21,14 +21,14 @@ When all is set up, a connection task is spawned, which handles IO on the TUN in
 The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an efficient and scalable implementation.
 
 ## Supported platforms
-- [ ] Windows
+- [X] Windows (using [Wintun](https://www.wintun.net/))
 - [X] Linux
 - [X] MacOS
 
 ## Installation
-Binaries are at the moment available for Linux x86_64 and are attached to every release from 0.2.0 on GitHub.
+Binaries are currently available for Windows and Linux (x86_64) under every release.
 
-Using cargo, installation of published version can be done with a simple command:
+Using cargo, installation of any published version can be done with a simple command:
 ```bash
 $ cargo install quincy
 ```
