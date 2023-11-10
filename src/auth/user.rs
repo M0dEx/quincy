@@ -34,7 +34,7 @@ impl TryFrom<String> for User {
     fn try_from(user_string: String) -> Result<Self> {
         let split: Vec<String> = user_string.split(':').map(|str| str.to_owned()).collect();
         let name = split
-            .get(0)
+            .first()
             .ok_or_else(|| anyhow!("Failed to parse username from string: {user_string}"))?
             .clone();
         let password_hash_string = split

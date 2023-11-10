@@ -1,6 +1,6 @@
 [package]
 name = "quincy"
-version = "0.2.4"
+version = "0.3.1"
 authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
 license = "MIT"
 description = "QUIC-based VPN"
@@ -31,7 +31,7 @@ path = "src/bin/users.rs"
 quinn = "^0.10.1"
 
 # Interfaces and networking
-tun = { version = "^0.5.5", features = ["async"] }
+tun = { version = "^0.6.0", features = ["async"] }
 socket2 = "^0.5.2"
 bytes = "^1.4"
 etherparse = "^0.13.0"

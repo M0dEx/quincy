@@ -33,7 +33,7 @@ pub fn load_private_key_from_file(path: &Path) -> Result<PrivateKey> {
     let mut reader = BufReader::new(file);
 
     let private_key_bytes = rustls_pemfile::pkcs8_private_keys(&mut reader)?
-        .get(0)
+        .first()
         .ok_or_else(|| anyhow!("No private key found in the file: {path:?}"))?
         .clone();
 

@@ -18,9 +18,12 @@ pub fn set_up_interface(interface_address: IpNet, mtu: u32) -> Result<AsyncDevic
     config
         .address(interface_address.addr())
         .netmask(interface_address.netmask())
-        .destination(interface_address.network())
         .mtu(mtu as i32)
         .up();
+
+    // Needed due to rust-tun using the destination address as the default GW
+    #[cfg(not(target_os = "windows"))]
+    config.destination(interface_address.network());
 
     #[cfg(target_os = "linux")]
     config.platform(|config| {
