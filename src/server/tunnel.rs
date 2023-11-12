@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,7 +6,6 @@ use crate::auth::user::{load_users_file, UserDatabase};
 use crate::config::{ConnectionConfig, TunnelConfig};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
-use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
 use crate::utils::socket::bind_socket;
 use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
@@ -15,14 +14,13 @@ use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
 use ipnet::Ipv4Net;
 use quinn::Endpoint;
-use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use crate::constants::{CLEANUP_INTERVAL, QUINN_RUNTIME};
+use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
 use tracing::{debug, error, info, warn};
-use tun::AsyncDevice;
 
 type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
 
@@ -69,7 +67,7 @@ impl QuincyTunnel {
     }
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start<I: Interface>(&mut self) -> Result<()> {
         if self.is_ok() {
             return Err(anyhow!("Tunnel '{}' is already running", self.name));
         }
@@ -79,7 +77,7 @@ impl QuincyTunnel {
             self.tunnel_config.address_mask,
         )?
         .into();
-        let interface = set_up_interface(interface_address, self.connection_config.mtu)?;
+        let interface = I::create(interface_address, self.connection_config.mtu)?;
 
         let (tun_read, tun_write) = tokio::io::split(interface);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -237,10 +235,10 @@ impl QuincyTunnel {
     /// - `quinn_config` - the Quinn server configuration to use
     fn create_quinn_endpoint(&self, quinn_config: quinn::ServerConfig) -> Result<Endpoint> {
         let socket = bind_socket(
-            SocketAddr::V4(SocketAddrV4::new(
+            SocketAddr::new(
                 self.tunnel_config.bind_address,
                 self.tunnel_config.bind_port,
-            )),
+            ),
             self.connection_config.send_buffer_size as usize,
             self.connection_config.recv_buffer_size as usize,
         )?;
@@ -263,14 +261,14 @@ impl QuincyTunnel {
     /// - `active_connections` - a map of connections and their associated client IP addresses
     /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
     async fn process_outbound_traffic(
-        mut tun_read: ReadHalf<AsyncDevice>,
+        mut tun_read: impl InterfaceRead,
         active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
         buffer_size: usize,
     ) -> Result<()> {
         debug!("Started outbound traffic task (interface -> QUIC tunnel)");
 
         loop {
-            let buf = read_from_interface(&mut tun_read, buffer_size).await?;
+            let buf = tun_read.read_packet(buffer_size).await?;
 
             let headers = match PacketHeaders::from_ip_slice(&buf) {
                 Ok(headers) => headers,
@@ -328,14 +326,15 @@ impl QuincyTunnel {
     /// - `tun_write` - the write half of the TUN interface
     /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
     async fn process_inbound_traffic(
-        mut tun_write: WriteHalf<AsyncDevice>,
+        mut tun_write: impl InterfaceWrite,
         mut write_queue_receiver: UnboundedReceiver<Bytes>,
     ) -> Result<()> {
         debug!("Started inbound traffic task (QUIC tunnel -> interface)");
 
         while let Some(buf) = write_queue_receiver.recv().await {
             debug!("Sent {} bytes to tunnel", buf.len());
-            write_to_interface(&mut tun_write, buf).await?;
+            tun_write.write_packet(buf).await?;
+            debug!("Done");
         }
 
         Ok(())

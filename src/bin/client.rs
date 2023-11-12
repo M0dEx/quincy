@@ -5,6 +5,7 @@ use quincy::config::{ClientConfig, FromPath};
 use quincy::utils::cli::Args;
 use quincy::utils::tracing::enable_tracing;
 use tracing::error;
+use tun::AsyncDevice;
 
 #[tokio::main]
 async fn main() {
@@ -22,5 +23,5 @@ async fn run_client(args: Args) -> Result<()> {
     enable_tracing(&config.log.level);
 
     let client = QuincyClient::new(config);
-    client.run().await
+    client.run::<AsyncDevice>().await
 }

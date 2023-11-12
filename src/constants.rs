@@ -5,9 +5,6 @@ use std::time::Duration;
 use once_cell::sync::Lazy;
 use quinn::Runtime;
 
-/// Represents the size of the buffer used for bincode (de)serialization.
-pub const BINCODE_BUFFER_SIZE: usize = 128;
-
 /// Represents the grace interval to add to the auth_timeout variable used for timing out a connection.
 pub const AUTH_TIMEOUT_GRACE: u64 = 5;
 
