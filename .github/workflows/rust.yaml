@@ -11,9 +11,7 @@ jobs:
 
     strategy:
       matrix:
-#        unnecessary until macos-latest runs on arm64 arch
-#        os: [ubuntu-latest, macos-latest]
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, windows-latest]
         rust: [stable, nightly]
 
     runs-on: ${{ matrix.os }}
@@ -41,8 +39,6 @@ jobs:
 
     strategy:
       matrix:
-#        unnecessary until macos-latest runs on arm64 arch
-#        os: [ubuntu-latest, macos-latest]
         os: [ubuntu-latest]
         rust: [stable, nightly]
 
