@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         name: Set up toolchain
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         name: Set up toolchain
       - uses: taiki-e/install-action@cargo-llvm-cov
         name: Install cargo llvm-cov
@@ -62,7 +62,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         name: Set up toolchain
         with:
-          toolchain: stable
+          toolchain: nightly
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies

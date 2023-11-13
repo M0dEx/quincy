@@ -1,12 +1,11 @@
+#![allow(async_fn_in_trait)]
 use anyhow::Result;
-use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use ipnet::IpNet;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::{AsyncDevice, Configuration};
 
-#[async_trait]
-pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Sync + Send + 'static {
+pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Send + 'static {
     #[inline]
     async fn read_packet(&mut self, buf_size: usize) -> Result<Bytes> {
         let mut buf = BytesMut::with_capacity(buf_size);
@@ -22,8 +21,7 @@ pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Sync + Send + 'static {
     }
 }
 
-#[async_trait]
-pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Sync + Send + 'static {
+pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
     #[inline]
     async fn write_packet(&mut self, packet_data: Bytes) -> Result<()> {
         #[cfg(target_os = "macos")]

@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         name: Set up toolchain
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         name: Set up toolchain
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         name: Set up toolchain
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
