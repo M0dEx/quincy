@@ -1,0 +1,15 @@
+[tunnels.tun0]
+name = "tun0"
+certificate_file = "tests/static/cert.pem"
+certificate_key_file = "tests/static/key.pem"
+address_tunnel = "10.0.0.1"
+address_mask = "255.255.255.0"
+users_file = "tests/static/users"
+bind_address = "::"
+bind_port = 55155
+
+[connection]
+mtu = 1400
+
+[log]
+level = "info"

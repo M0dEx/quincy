@@ -1,3 +1,4 @@
+use crate::interface::Interface;
 use crate::server::tunnel::QuincyTunnel;
 use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
 use anyhow::Result;
@@ -19,7 +20,7 @@ impl QuincyServer {
     ///
     /// ### Arguments
     /// - `config` - the configuration for the server
-    pub async fn new(config: ServerConfig) -> Result<Self> {
+    pub fn new(config: ServerConfig) -> Result<Self> {
         let tunnels = DashMap::new();
 
         for (name, tunnel_config) in config.tunnels.iter() {
@@ -35,11 +36,11 @@ impl QuincyServer {
     }
 
     /// Starts the Quincy server and all of its underlying tunnels.
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run<I: Interface>(&self) -> Result<()> {
         for mut entry in self.active_tunnels.iter_mut() {
             let tunnel = entry.value_mut();
 
-            tunnel.start().await?;
+            tunnel.start::<I>().await?;
         }
 
         loop {
@@ -54,7 +55,7 @@ impl QuincyServer {
                 error!("Tunnel '{tunnel_name}' encountered an error, restarting...");
 
                 tunnel.stop().await?;
-                tunnel.start().await?;
+                tunnel.start::<I>().await?;
 
                 info!("Tunnel '{tunnel_name}' restarted successfully");
             }

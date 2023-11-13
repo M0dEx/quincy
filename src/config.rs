@@ -8,8 +8,8 @@ use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{collections::hash_map::Entry, time::Duration};
 
@@ -42,7 +42,7 @@ pub struct TunnelConfig {
     pub certificate_key_file: PathBuf,
     /// The address to bind the tunnel to
     #[serde(default = "default_bind_address")]
-    pub bind_address: Ipv4Addr,
+    pub bind_address: IpAddr,
     /// The port to bind the tunnel to
     #[serde(default = "default_bind_port")]
     pub bind_port: u16,
@@ -82,7 +82,7 @@ pub struct ClientAuthenticationConfig {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
     /// The MTU to use for connections and the TUN interface
-    pub mtu: u32,
+    pub mtu: i32,
     /// Timeout
     #[serde(default = "default_timeout")]
     pub timeout: Duration,
@@ -121,7 +121,7 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
     /// ### Arguments
     /// - `path` - a path to the configuration file
     /// - `env_prefix` - the ENV prefix to use for overrides
-    fn from_path(path: &PathBuf, env_prefix: &str) -> Result<T> {
+    fn from_path(path: &Path, env_prefix: &str) -> Result<T> {
         let figment = Figment::new()
             .merge(Toml::file(path))
             .merge(Env::prefixed(env_prefix));
@@ -175,7 +175,7 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
-fn default_bind_address() -> Ipv4Addr {
+fn default_bind_address() -> IpAddr {
     "0.0.0.0".parse().expect("Default address is valid")
 }
 

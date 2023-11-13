@@ -6,13 +6,11 @@ use crate::utils::socket::bind_socket;
 use anyhow::{anyhow, Result};
 use quinn::{Connection, Endpoint};
 
-use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
-use crate::utils::interface::{read_from_interface, set_up_interface, write_to_interface};
+use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
 use std::sync::Arc;
-use tokio::io::{ReadHalf, WriteHalf};
 use tracing::{debug, info, warn};
-use tun::AsyncDevice;
 
 /// Represents a Quincy client that connects to a server and relays packets between the server and a TUN interface.
 pub struct QuincyClient {
@@ -29,7 +27,7 @@ impl QuincyClient {
     }
 
     /// Connects to the Quincy server and starts the workers for this instance of the Quincy client.
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run<I: Interface>(&self) -> Result<()> {
         let connection = self.connect_to_server().await?;
         let mut auth_client =
             AuthClient::new(&connection, &self.client_config.authentication).await?;
@@ -38,7 +36,7 @@ impl QuincyClient {
 
         info!("Received client address: {assigned_address}");
 
-        let interface = set_up_interface(assigned_address, self.client_config.connection.mtu)?;
+        let interface = I::create(assigned_address, self.client_config.connection.mtu)?;
 
         self.relay_packets(
             connection,
@@ -56,7 +54,6 @@ impl QuincyClient {
     /// - `Connection` - a Quinn connection representing the connection to the Quincy server
     async fn connect_to_server(&self) -> Result<Connection> {
         let quinn_config = self.client_config.as_quinn_client_config()?;
-        let endpoint = self.create_quinn_endpoint()?;
 
         let server_hostname = self
             .client_config
@@ -84,6 +81,7 @@ impl QuincyClient {
 
         info!("Connecting: {}", self.client_config.connection_string);
 
+        let endpoint = self.create_quinn_endpoint(server_addr)?;
         let connection = endpoint
             .connect_with(quinn_config, server_addr, server_hostname)?
             .await?;
@@ -100,8 +98,14 @@ impl QuincyClient {
     ///
     /// ### Returns
     /// - `Endpoint` - the Quinn endpoint
-    fn create_quinn_endpoint(&self) -> Result<Endpoint> {
-        let bind_addr: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+    fn create_quinn_endpoint(&self, remote_address: SocketAddr) -> Result<Endpoint> {
+        let bind_addr: SocketAddr = SocketAddr::new(
+            match remote_address.ip() {
+                IpAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),
+                IpAddr::V6(_) => Ipv6Addr::UNSPECIFIED.into(),
+            },
+            0,
+        );
         debug!("QUIC socket local address: {:?}", bind_addr);
 
         let socket = bind_socket(
@@ -124,7 +128,7 @@ impl QuincyClient {
     async fn relay_packets(
         &self,
         connection: Connection,
-        interface: AsyncDevice,
+        interface: impl Interface,
         interface_mtu: usize,
     ) -> Result<()> {
         let connection = Arc::new(connection);
@@ -157,13 +161,13 @@ impl QuincyClient {
     /// - `interface_mtu` - the MTU of the TUN interface
     async fn process_outgoing_traffic(
         connection: Arc<Connection>,
-        mut read_interface: ReadHalf<AsyncDevice>,
+        mut read_interface: impl InterfaceRead,
         interface_mtu: usize,
     ) -> Result<()> {
         debug!("Started outgoing traffic task (interface -> QUIC tunnel)");
 
         loop {
-            let data = read_from_interface(&mut read_interface, interface_mtu).await?;
+            let data = read_interface.read_packet(interface_mtu).await?;
 
             let quinn_mtu = connection
                 .max_datagram_size()
@@ -195,7 +199,7 @@ impl QuincyClient {
     /// - `write_interface` - the write half of the TUN interface
     async fn process_inbound_traffic(
         connection: Arc<Connection>,
-        mut write_interface: WriteHalf<AsyncDevice>,
+        mut write_interface: impl InterfaceWrite,
     ) -> Result<()> {
         debug!("Started inbound traffic task (QUIC tunnel -> interface)");
 
@@ -208,7 +212,7 @@ impl QuincyClient {
                 connection.remote_address()
             );
 
-            write_to_interface(&mut write_interface, data).await?;
+            write_interface.write_packet(data).await?;
         }
     }
 }

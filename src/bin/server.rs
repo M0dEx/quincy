@@ -5,6 +5,7 @@ use quincy::server::QuincyServer;
 use quincy::utils::cli::Args;
 use quincy::utils::tracing::enable_tracing;
 use tracing::error;
+use tun::AsyncDevice;
 
 #[tokio::main]
 async fn main() {
@@ -21,6 +22,6 @@ async fn run_server(args: Args) -> Result<()> {
     let config = ServerConfig::from_path(&args.config_path, &args.env_prefix)?;
     enable_tracing(&config.log.level);
 
-    let server = QuincyServer::new(config).await?;
-    server.run().await
+    let server = QuincyServer::new(config)?;
+    server.run::<AsyncDevice>().await
 }

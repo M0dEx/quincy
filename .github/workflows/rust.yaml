@@ -11,19 +11,14 @@ jobs:
 
     strategy:
       matrix:
-#        unnecessary until macos-latest runs on arm64 arch
-#        os: [ubuntu-latest, macos-latest]
-        os: [ubuntu-latest]
-        rust: [stable, nightly]
+        os: [ubuntu-latest, windows-latest]
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         name: Checkout repository
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         name: Set up toolchain
-        with:
-          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
       - uses: actions-rs/cargo@v1
@@ -36,24 +31,38 @@ jobs:
         with:
           command: test
 
+  coverage:
+    name: Test crate with coverage
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout repository
+      - uses: dtolnay/rust-toolchain@stable
+        name: Set up toolchain
+      - uses: taiki-e/install-action@cargo-llvm-cov
+        name: Install cargo llvm-cov
+      - run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        name: Test with coverage
+      - uses: codecov/codecov-action@v3
+        name: Upload coverage to Codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+
   lint:
     name: Check code style
 
-    strategy:
-      matrix:
-#        unnecessary until macos-latest runs on arm64 arch
-#        os: [ubuntu-latest, macos-latest]
-        os: [ubuntu-latest]
-        rust: [stable, nightly]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         name: Checkout repository
       - uses: dtolnay/rust-toolchain@master
         name: Set up toolchain
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
