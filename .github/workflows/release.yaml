@@ -26,6 +26,7 @@ jobs:
     name: Build x86_64 Linux binaries
 
     runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_28_x86_64
 
     permissions:
       contents: write
