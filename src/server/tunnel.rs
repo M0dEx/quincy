@@ -216,7 +216,18 @@ impl QuincyTunnel {
                 client_tun_ip,
             );
 
-            connection.start().await?;
+            let connection = match connection.start().await {
+                Ok(_) => connection,
+                Err(e) => {
+                    error!(
+                        "Failed to set up connection with client '{client_tun_ip}': {e}",
+                        client_tun_ip = client_tun_ip.addr(),
+                        e = e
+                    );
+                    continue;
+                }
+            };
+
             info!(
                 "Connection established: {client_tun_ip} ({})",
                 connection.remote_address(),
