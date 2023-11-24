@@ -214,8 +214,7 @@ impl QuincyTunnel {
                 write_queue_sender.clone(),
                 user_database.clone(),
                 client_tun_ip,
-            )
-            .await?;
+            );
 
             connection.start().await?;
             info!(

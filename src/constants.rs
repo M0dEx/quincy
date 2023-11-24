@@ -20,6 +20,12 @@ pub const QUIC_MTU_OVERHEAD: u16 = 42;
 /// Represents the interval used by various cleanup tasks.
 pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Error message when authentication fails.
+pub const AUTH_FAILED_MESSAGE: &str = "Authentication failed";
+
+/// Buffer size for authentication messages.
+pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
+
 /// Represents the size of the packet info header on UNIX systems.
 #[cfg(target_os = "macos")]
 pub const DARWIN_PI_HEADER_LENGTH: usize = 4;
