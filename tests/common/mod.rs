@@ -1,5 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use etherparse::PacketBuilder;
+use once_cell::sync::Lazy;
 use quincy::config::{ClientConfig, FromPath, ServerConfig};
 use quincy::interface::{InterfaceRead, InterfaceWrite};
 use rstest::fixture;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 pub type TestSender = Arc<Mutex<UnboundedSender<Bytes>>>;
 pub type TestReceiver = Arc<Mutex<UnboundedReceiver<Bytes>>>;
@@ -91,4 +92,25 @@ pub fn client_config() -> ClientConfig {
 #[fixture]
 pub fn server_config() -> ServerConfig {
     ServerConfig::from_path(Path::new("tests/static/server.toml"), "QUINCY").unwrap()
+}
+
+pub const fn make_queue_pair() -> Lazy<(TestSender, TestReceiver)> {
+    Lazy::new(|| {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Arc::new(Mutex::new(tx)), Arc::new(Mutex::new(rx)))
+    })
+}
+
+#[macro_export]
+macro_rules! interface_impl {
+    ($name:ident, $test_queue_send:ident, $test_queue_recv:ident) => {
+        impl Interface for $name {
+            fn create(_interface_address: IpNet, _mtu: i32) -> Result<Self> {
+                Ok(Self::new(
+                    $test_queue_send.0.clone(),
+                    $test_queue_recv.1.clone(),
+                ))
+            }
+        }
+    };
 }

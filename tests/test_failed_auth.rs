@@ -11,6 +11,9 @@ use quincy::interface::Interface;
 use quincy::server::QuincyServer;
 use rstest::rstest;
 use std::net::Ipv4Addr;
+use std::time::Duration;
+use tokio::time::sleep;
+use tracing_test::traced_test;
 
 mod common;
 
@@ -37,48 +40,44 @@ interface_impl!(
 
 #[rstest]
 #[tokio::test]
-async fn test_end_to_end_communication(client_config: ClientConfig, server_config: ServerConfig) {
-    #[cfg(target_os = "macos")]
-    use quincy::interface::prepend_packet_info_header;
-
+#[traced_test]
+async fn test_failed_auth(mut client_config: ClientConfig, server_config: ServerConfig) {
+    client_config.authentication.password = "wrong_password".to_string();
     let client = QuincyClient::new(client_config);
     let server = QuincyServer::new(server_config).unwrap();
 
     let ip_server = Ipv4Addr::new(10, 0, 0, 1);
     let ip_client = Ipv4Addr::new(10, 0, 0, 2);
+    let test_packet_client = dummy_packet(ip_client, ip_server);
+    let test_packet_server = dummy_packet(ip_server, ip_client);
 
-    tokio::spawn(async move { server.run::<ServerInterface>().await.unwrap() });
-    tokio::spawn(async move { client.run::<ClientInterface>().await.unwrap() });
-
-    // Test client -> server
-    let test_packet = dummy_packet(ip_client, ip_server);
-    #[cfg(target_os = "macos")]
-    let test_packet = prepend_packet_info_header(test_packet).unwrap();
+    tokio::spawn(async move { server.run::<ServerInterface>().await });
+    let client_task = tokio::spawn(async move { client.run::<ClientInterface>().await });
 
     TEST_QUEUE_CLIENT_RECV
         .0
         .lock()
         .await
-        .send(test_packet.clone())
+        .send(test_packet_client)
         .unwrap();
-
-    let recv_packet = TEST_QUEUE_SERVER_SEND.1.lock().await.recv().await.unwrap();
-
-    assert_eq!(test_packet, recv_packet);
-
-    // Test server -> client
-    let test_packet = dummy_packet(ip_server, ip_client);
-    #[cfg(target_os = "macos")]
-    let test_packet = prepend_packet_info_header(test_packet).unwrap();
 
     TEST_QUEUE_SERVER_RECV
         .0
         .lock()
         .await
-        .send(test_packet.clone())
+        .send(test_packet_server)
         .unwrap();
 
-    let recv_packet = TEST_QUEUE_CLIENT_SEND.1.lock().await.recv().await.unwrap();
+    assert!(client_task.await.unwrap().is_err());
 
-    assert_eq!(test_packet, recv_packet);
+    // Wait for everything to propagate and be logged
+    sleep(Duration::from_secs(1)).await;
+
+    let recv_packet_server = TEST_QUEUE_SERVER_SEND.1.lock().await.try_recv();
+    assert!(recv_packet_server.is_err());
+
+    let recv_packet_client = TEST_QUEUE_CLIENT_SEND.1.lock().await.try_recv();
+    assert!(recv_packet_client.is_err());
+
+    assert!(logs_contain("Failed to set up connection with client"));
 }
