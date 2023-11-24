@@ -1,4 +1,4 @@
-use crate::auth::server::{AuthServer, AuthState};
+use crate::auth::server::AuthServer;
 use crate::auth::user::UserDatabase;
 use crate::config::ConnectionConfig;
 use crate::utils::tasks::join_or_abort_task;
@@ -12,14 +12,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{debug, error};
 
 /// Represents a Quincy connection encapsulating authentication and IO.
 pub struct QuincyConnection {
     connection: Arc<Connection>,
-    auth_server: Arc<RwLock<AuthServer>>,
+    auth_server: AuthServer,
     tun_queue: Arc<UnboundedSender<Bytes>>,
     tasks: Vec<JoinHandle<Result<()>>>,
 }
@@ -33,28 +32,27 @@ impl QuincyConnection {
     /// - `user_database` - the user database
     /// - `auth_timeout` - the authentication timeout
     /// - `client_address` - the assigned client address
-    pub async fn new(
+    pub fn new(
         connection: Connection,
         connection_config: &ConnectionConfig,
         tun_queue: Arc<UnboundedSender<Bytes>>,
         user_database: Arc<UserDatabase>,
         client_address: IpNet,
-    ) -> Result<Self> {
+    ) -> Self {
         let connection = Arc::new(connection);
         let auth_server = AuthServer::new(
             user_database,
             connection.clone(),
             client_address,
             connection_config.timeout,
-        )
-        .await?;
+        );
 
-        Ok(Self {
+        Self {
             connection,
-            auth_server: Arc::new(RwLock::new(auth_server)),
+            auth_server,
             tun_queue,
             tasks: Vec::new(),
-        })
+        }
     }
 
     /// Starts the tasks for this instance of Quincy connection.
@@ -65,10 +63,12 @@ impl QuincyConnection {
             ));
         }
 
+        self.auth_server.handle_authentication().await?;
+
+        // Additional authentication checks are not needed if initial authentication succeeded
         self.tasks.push(tokio::spawn(Self::process_incoming_data(
             self.connection.clone(),
             self.tun_queue.clone(),
-            self.auth_server.clone(),
         )));
 
         Ok(())
@@ -99,17 +99,8 @@ impl QuincyConnection {
     ///
     /// ### Arguments
     /// - `data` - the data to be sent
+    #[inline]
     pub async fn send_datagram(&self, data: Bytes) -> Result<()> {
-        match self.auth_server.read().await.get_state().await {
-            AuthState::Authenticated(_) => (),
-            _ => {
-                return Err(anyhow!(
-                    "Attempted to send datagram to unauthenticated client {:?}",
-                    self.connection.remote_address(),
-                ))
-            }
-        }
-
         self.connection.send_datagram(data)?;
 
         Ok(())
@@ -127,25 +118,11 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - a reference to the underlying QUIC connection
     /// - `tun_queue` - a sender of an unbounded queue used by the tunnel worker to receive data
-    /// - `auth_server` - a reference to the authentication server
     async fn process_incoming_data(
         connection: Arc<Connection>,
         tun_queue: Arc<UnboundedSender<Bytes>>,
-        auth_server: Arc<RwLock<AuthServer>>,
     ) -> Result<()> {
-        Self::handle_authentication(&auth_server).await?;
-
         loop {
-            match auth_server.read().await.get_state().await {
-                AuthState::Authenticated(_) => (),
-                _ => {
-                    return Err(anyhow!(
-                        "Connection {:?} not authenticated, dropping incoming data",
-                        connection.remote_address(),
-                    ))
-                }
-            }
-
             let data = connection.read_datagram().await?;
             debug!(
                 "Received {} bytes from {:?}",
@@ -155,10 +132,5 @@ impl QuincyConnection {
 
             tun_queue.send(data)?;
         }
-    }
-
-    async fn handle_authentication(auth_server: &Arc<RwLock<AuthServer>>) -> Result<()> {
-        let mut auth_server = auth_server.write().await;
-        auth_server.handle_authentication().await
     }
 }
