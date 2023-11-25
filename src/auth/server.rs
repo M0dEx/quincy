@@ -1,6 +1,6 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
-use crate::constants::{AUTH_FAILED_MESSAGE, AUTH_MESSAGE_BUFFER_SIZE};
+use crate::constants::{AUTH_FAILED_MESSAGE, AUTH_MESSAGE_BUFFER_SIZE, AUTH_TIMEOUT_MESSAGE};
 use anyhow::{anyhow, Context, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;
@@ -45,15 +45,26 @@ impl AuthServer {
 
     /// Handles authentication for a client.
     pub async fn handle_authentication(&mut self) -> Result<()> {
-        let (send_stream, mut recv_stream) = self.connection.accept_bi().await?;
+        let (send_stream, mut recv_stream) =
+            match timeout(self.auth_timeout, self.connection.accept_bi()).await {
+                Ok(Ok(streams)) => streams,
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => return self.handle_failure(AUTH_TIMEOUT_MESSAGE, None).await,
+            };
 
-        let message = timeout(self.auth_timeout, Self::recv_message(&mut recv_stream)).await?;
-
-        if let Ok(AuthClientMessage::Authentication(username, password)) = message {
-            self.authenticate_user(send_stream, username, password)
-                .await
-        } else {
-            self.handle_failure(send_stream).await
+        match timeout(self.auth_timeout, Self::recv_message(&mut recv_stream)).await {
+            Ok(Ok(AuthClientMessage::Authentication(username, password))) => {
+                self.authenticate_user(send_stream, username, password)
+                    .await
+            }
+            Ok(Err(_)) => {
+                self.handle_failure(AUTH_FAILED_MESSAGE, Some(send_stream))
+                    .await
+            }
+            Err(_) => {
+                self.handle_failure(AUTH_TIMEOUT_MESSAGE, Some(send_stream))
+                    .await
+            }
         }
     }
 
@@ -67,7 +78,9 @@ impl AuthServer {
         let auth_result = self.user_database.authenticate(&username, password).await;
 
         if auth_result.is_err() {
-            return self.handle_failure(send_stream).await;
+            return self
+                .handle_failure(AUTH_FAILED_MESSAGE, Some(send_stream))
+                .await;
         }
 
         let response = AuthServerMessage::Authenticated(
@@ -82,18 +95,23 @@ impl AuthServer {
     }
 
     /// Handles a failure during authentication.
-    async fn handle_failure(&self, send_stream: SendStream) -> Result<()> {
-        self.close_connection(send_stream, AUTH_FAILED_MESSAGE)
-            .await?;
+    async fn handle_failure(
+        &self,
+        reason: &'static str,
+        send_stream: Option<SendStream>,
+    ) -> Result<()> {
+        if let Some(mut send_stream) = send_stream {
+            Self::send_message(&mut send_stream, AuthServerMessage::Failed).await?;
+            send_stream.finish().await?;
+        }
 
-        Err(anyhow!(AUTH_FAILED_MESSAGE))
+        self.close_connection(reason).await?;
+
+        Err(anyhow!(reason))
     }
 
     /// Closes the connection with the given reason.
-    async fn close_connection(&self, mut send_stream: SendStream, reason: &str) -> Result<()> {
-        Self::send_message(&mut send_stream, AuthServerMessage::Failed).await?;
-        send_stream.finish().await?;
-
+    async fn close_connection(&self, reason: &str) -> Result<()> {
         self.connection
             .close(VarInt::from_u32(0x01), reason.as_bytes());
 

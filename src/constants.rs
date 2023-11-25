@@ -23,6 +23,9 @@ pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 /// Error message when authentication fails.
 pub const AUTH_FAILED_MESSAGE: &str = "Authentication failed";
 
+/// Error message when authentication times out.
+pub const AUTH_TIMEOUT_MESSAGE: &str = "Authentication timed out";
+
 /// Buffer size for authentication messages.
 pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
 
