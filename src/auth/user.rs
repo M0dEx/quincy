@@ -138,8 +138,8 @@ mod tests {
     use argon2::{Argon2, PasswordHasher};
     use dashmap::DashMap;
 
-    #[test]
-    fn test_authentication() {
+    #[tokio::test]
+    async fn test_authentication() {
         let users: DashMap<String, User> = DashMap::new();
 
         let argon = Argon2::default();
@@ -153,7 +153,9 @@ mod tests {
         users.insert(username.clone(), test_user);
 
         let user_db = UserDatabase::new(users);
-        tokio_test::block_on(user_db.authenticate(&username, password))
+        user_db
+            .authenticate(&username, password)
+            .await
             .expect("Credentials are valid");
     }
 }
