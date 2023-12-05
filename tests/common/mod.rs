@@ -81,6 +81,13 @@ pub fn dummy_packet(src: Ipv4Addr, dest: Ipv4Addr) -> Bytes {
         .write(&mut writer, &[1, 2, 3, 4, 5, 6, 7, 8])
         .unwrap();
 
+    #[cfg(target_os = "macos")]
+    {
+        use quincy::interface::prepend_packet_info_header;
+        prepend_packet_info_header(&writer.into_inner().into()).unwrap()
+    }
+
+    #[cfg(not(target_os = "macos"))]
     writer.into_inner().into()
 }
 

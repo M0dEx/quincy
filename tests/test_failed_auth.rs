@@ -79,5 +79,5 @@ async fn test_failed_auth(mut client_config: ClientConfig, server_config: Server
     let recv_packet_client = TEST_QUEUE_CLIENT_SEND.1.lock().await.try_recv();
     assert!(recv_packet_client.is_err());
 
-    assert!(logs_contain("Failed to set up connection with client"));
+    assert!(logs_contain("Failed to authenticate client"));
 }

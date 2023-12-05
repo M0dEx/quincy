@@ -34,6 +34,7 @@ impl QuincyClient {
 
         let assigned_address = auth_client.authenticate().await?;
 
+        info!("Successfully authenticated");
         info!("Received client address: {assigned_address}");
 
         let interface = I::create(assigned_address, self.client_config.connection.mtu)?;

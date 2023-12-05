@@ -19,24 +19,22 @@ pub enum AuthServerMessage {
 }
 
 /// Represents an authentication server handling initial authentication and session management.
-pub struct AuthServer {
-    user_database: Arc<UserDatabase>,
-    username: Option<String>,
+pub struct AuthServer<'a> {
+    user_database: &'a UserDatabase,
     client_address: IpNet,
     connection: Arc<Connection>,
     auth_timeout: Duration,
 }
 
-impl AuthServer {
+impl<'a> AuthServer<'a> {
     pub fn new(
-        user_database: Arc<UserDatabase>,
+        user_database: &'a UserDatabase,
         connection: Arc<Connection>,
         client_address: IpNet,
         auth_timeout: Duration,
     ) -> Self {
         Self {
             user_database,
-            username: None,
             client_address,
             connection,
             auth_timeout,
@@ -44,12 +42,17 @@ impl AuthServer {
     }
 
     /// Handles authentication for a client.
-    pub async fn handle_authentication(&mut self) -> Result<()> {
+    pub async fn handle_authentication(&self) -> Result<String> {
         let (send_stream, mut recv_stream) =
             match timeout(self.auth_timeout, self.connection.accept_bi()).await {
                 Ok(Ok(streams)) => streams,
                 Ok(Err(e)) => return Err(e.into()),
-                Err(_) => return self.handle_failure(AUTH_TIMEOUT_MESSAGE, None).await,
+                Err(_) => {
+                    return Err(self
+                        .handle_failure(AUTH_TIMEOUT_MESSAGE, None)
+                        .await
+                        .expect_err("Handle failure always returns an error"))
+                }
             };
 
         match timeout(self.auth_timeout, Self::recv_message(&mut recv_stream)).await {
@@ -57,30 +60,31 @@ impl AuthServer {
                 self.authenticate_user(send_stream, username, password)
                     .await
             }
-            Ok(Err(_)) => {
-                self.handle_failure(AUTH_FAILED_MESSAGE, Some(send_stream))
-                    .await
-            }
-            Err(_) => {
-                self.handle_failure(AUTH_TIMEOUT_MESSAGE, Some(send_stream))
-                    .await
-            }
+            Ok(Err(_)) => Err(self
+                .handle_failure(AUTH_FAILED_MESSAGE, Some(send_stream))
+                .await
+                .expect_err("Handle failure always returns an error")),
+            Err(_) => Err(self
+                .handle_failure(AUTH_TIMEOUT_MESSAGE, Some(send_stream))
+                .await
+                .expect_err("Handle failure always returns an error")),
         }
     }
 
     /// Authenticates a user with the given username and password.
     async fn authenticate_user(
-        &mut self,
+        &self,
         mut send_stream: SendStream,
         username: String,
         password: String,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let auth_result = self.user_database.authenticate(&username, password).await;
 
         if auth_result.is_err() {
-            return self
+            return Err(self
                 .handle_failure(AUTH_FAILED_MESSAGE, Some(send_stream))
-                .await;
+                .await
+                .expect_err("Handle failure always returns an error"));
         }
 
         let response = AuthServerMessage::Authenticated(
@@ -89,9 +93,8 @@ impl AuthServer {
         );
 
         Self::send_message(&mut send_stream, response).await?;
-        self.username.replace(username);
 
-        Ok(())
+        Ok(username)
     }
 
     /// Handles a failure during authentication.

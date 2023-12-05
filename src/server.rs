@@ -1,10 +1,10 @@
+use crate::config::ServerConfig;
 use crate::interface::Interface;
 use crate::server::tunnel::QuincyTunnel;
-use crate::{config::ServerConfig, constants::CLEANUP_INTERVAL};
-use anyhow::Result;
-use dashmap::DashMap;
-use tokio::time::sleep;
-use tracing::{error, info};
+use anyhow::{anyhow, Result};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use tracing::error;
 
 pub mod address_pool;
 pub mod connection;
@@ -12,7 +12,7 @@ pub mod tunnel;
 
 /// Represents a Quincy server with multiple underlying Quincy tunnels.
 pub struct QuincyServer {
-    active_tunnels: DashMap<String, QuincyTunnel>,
+    active_tunnels: Vec<QuincyTunnel>,
 }
 
 impl QuincyServer {
@@ -21,14 +21,13 @@ impl QuincyServer {
     /// ### Arguments
     /// - `config` - the configuration for the server
     pub fn new(config: ServerConfig) -> Result<Self> {
-        let tunnels = DashMap::new();
-
-        for (name, tunnel_config) in config.tunnels.iter() {
-            let tunnel =
-                QuincyTunnel::new(name.clone(), tunnel_config.clone(), &config.connection)?;
-
-            tunnels.insert(name.clone(), tunnel);
-        }
+        let tunnels = config
+            .tunnels
+            .into_iter()
+            .flat_map(|(name, tunnel_config)| {
+                QuincyTunnel::new(name, tunnel_config, &config.connection)
+            })
+            .collect();
 
         Ok(Self {
             active_tunnels: tunnels,
@@ -36,31 +35,26 @@ impl QuincyServer {
     }
 
     /// Starts the Quincy server and all of its underlying tunnels.
-    pub async fn run<I: Interface>(&self) -> Result<()> {
-        for mut entry in self.active_tunnels.iter_mut() {
-            let tunnel = entry.value_mut();
-
-            tunnel.start::<I>().await?;
-        }
+    pub async fn run<I: Interface>(self) -> Result<()> {
+        let mut tunnel_tasks = self
+            .active_tunnels
+            .into_iter()
+            .map(|tunnel| tokio::spawn(tunnel.run::<I>()))
+            .collect::<FuturesUnordered<_>>();
 
         loop {
-            for mut entry in self.active_tunnels.iter_mut() {
-                let tunnel_name = entry.key().to_owned();
-                let tunnel = entry.value_mut();
+            let (tunnel, task_result) = match tunnel_tasks.next().await {
+                Some(tunnel) => tunnel??,
+                None => return Err(anyhow!("No tunnels are running")),
+            };
 
-                if tunnel.is_ok() {
-                    continue;
-                }
+            error!(
+                "Tunnel {} has encountered an error: {:?}",
+                tunnel.name,
+                task_result.expect_err("Tunnel task always returns an error")
+            );
 
-                error!("Tunnel '{tunnel_name}' encountered an error, restarting...");
-
-                tunnel.stop().await?;
-                tunnel.start::<I>().await?;
-
-                info!("Tunnel '{tunnel_name}' restarted successfully");
-            }
-
-            sleep(CLEANUP_INTERVAL).await;
+            tunnel_tasks.push(tokio::spawn(tunnel.run::<I>()));
         }
     }
 }

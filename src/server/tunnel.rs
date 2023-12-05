@@ -7,33 +7,33 @@ use crate::config::{ConnectionConfig, TunnelConfig};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
 use crate::utils::socket::bind_socket;
-use crate::utils::tasks::join_or_abort_task;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use ipnet::Ipv4Net;
 use quinn::Endpoint;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
 
-use crate::constants::{CLEANUP_INTERVAL, QUINN_RUNTIME};
+use crate::constants::QUINN_RUNTIME;
 use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
-use tracing::{debug, error, info, warn};
+use crate::utils::tasks::join_or_abort_all;
+use tracing::{debug, info, warn};
 
-type SharedConnections = Arc<DashMap<IpAddr, QuincyConnection>>;
+type ConnectionQueues = Arc<DashMap<IpAddr, UnboundedSender<Bytes>>>;
 
 /// Represents a Quincy tunnel encapsulating Quincy connections and TUN interface IO.
 pub struct QuincyTunnel {
-    name: String,
+    pub name: String,
     tunnel_config: TunnelConfig,
     connection_config: ConnectionConfig,
-    active_connections: SharedConnections,
-    user_database: Arc<UserDatabase>,
-    address_pool: Arc<AddressPool>,
+    connection_queues: ConnectionQueues,
+    user_database: UserDatabase,
+    address_pool: AddressPool,
     buffer_size: usize,
-    tasks: Vec<JoinHandle<Result<()>>>,
 }
 
 impl QuincyTunnel {
@@ -58,20 +58,15 @@ impl QuincyTunnel {
             name,
             tunnel_config,
             connection_config: connection_config.clone(),
-            active_connections: Arc::new(DashMap::new()),
-            user_database: Arc::new(user_database),
-            address_pool: Arc::new(address_pool),
+            connection_queues: Arc::new(DashMap::new()),
+            user_database,
+            address_pool,
             buffer_size: connection_config.mtu as usize,
-            tasks: Vec::new(),
         })
     }
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
-    pub async fn start<I: Interface>(&mut self) -> Result<()> {
-        if self.is_ok() {
-            return Err(anyhow!("Tunnel '{}' is already running", self.name));
-        }
-
+    pub async fn run<I: Interface>(self) -> Result<(Self, Result<()>)> {
         let interface_address = Ipv4Net::with_netmask(
             self.tunnel_config.address_tunnel,
             self.tunnel_config.address_mask,
@@ -87,110 +82,38 @@ impl QuincyTunnel {
             .as_quinn_server_config(&self.connection_config)?;
         let endpoint = self.create_quinn_endpoint(quinn_configuration)?;
 
-        self.tasks.push(tokio::spawn(Self::process_outbound_traffic(
+        let mut tunnel_tasks = FuturesUnordered::new();
+
+        tunnel_tasks.push(tokio::spawn(Self::process_outbound_traffic(
             tun_read,
-            self.active_connections.clone(),
+            self.connection_queues.clone(),
             self.buffer_size,
         )));
 
-        self.tasks.push(tokio::spawn(Self::process_inbound_traffic(
+        tunnel_tasks.push(tokio::spawn(Self::process_inbound_traffic(
             tun_write, receiver,
         )));
 
-        self.tasks.push(tokio::spawn(Self::cleanup_connections(
-            self.active_connections.clone(),
-            self.address_pool.clone(),
-        )));
+        let handler_task = self.handle_incoming_connections(sender, endpoint);
 
-        self.tasks
-            .push(tokio::spawn(Self::handle_incoming_connections(
-                self.active_connections.clone(),
-                self.connection_config.clone(),
-                self.address_pool.clone(),
-                Arc::new(sender),
-                self.user_database.clone(),
-                endpoint,
-            )));
+        let result = tokio::select! {
+            handler_task_result = handler_task => handler_task_result,
+            Some(task_result) = tunnel_tasks.next() => task_result?,
+        };
 
-        Ok(())
-    }
+        join_or_abort_all(tunnel_tasks, Duration::from_secs(1)).await?;
 
-    /// Stops the tasks for this instance of Quincy tunnel.
-    pub async fn stop(&mut self) -> Result<()> {
-        let timeout = Duration::from_secs(1);
-
-        self.active_connections.clear();
-        self.address_pool.reset();
-
-        while let Some(task) = self.tasks.pop() {
-            if let Some(Err(e)) = join_or_abort_task(task, timeout).await {
-                error!("An error occurred in tunnel '{}': {e}", self.name);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Checks whether this instance of Quincy tunnel is running.
-    ///
-    /// ### Returns
-    /// - `true` if all tunnel tasks are running, `false` if not
-    pub fn is_ok(&self) -> bool {
-        !self.tasks.is_empty() && self.tasks.iter().all(|task| !task.is_finished())
-    }
-
-    /// Cleans up stale (failed/timed out) connections.
-    ///
-    /// ### Arguments
-    /// - `connections` - a map of connections and their associated client IP addresses
-    /// - `address_pool` - the address pool being used
-    async fn cleanup_connections(
-        connections: SharedConnections,
-        address_pool: Arc<AddressPool>,
-    ) -> Result<()> {
-        debug!("Started tunnel connection cleanup worker");
-
-        loop {
-            let mut stale_connections = vec![];
-
-            for connection in connections.iter() {
-                if !connection.value().is_ok() {
-                    stale_connections.push(connection.key().to_owned());
-                }
-            }
-
-            for connection_addr in stale_connections {
-                warn!(
-                    "Deactivating stale connection for client: {}",
-                    connection_addr
-                );
-                let (_, mut connection) = connections
-                    .remove(&connection_addr)
-                    .expect("Stale connection exists");
-
-                connection.stop().await?;
-                address_pool.release_address(connection_addr);
-            }
-
-            sleep(CLEANUP_INTERVAL).await;
-        }
+        Ok((self, result))
     }
 
     /// Handles incoming connections by spawning a new QuincyConnection instance for them.
     ///
     /// ### Arguments
-    /// - `active_connections` - a map of connections and their associated client IP addresses
-    /// - `connection_config` - the connection configuration
-    /// - `address_pool` - the address pool being used
-    /// - `write_queue_sender` - the channel for sending data to the TUN interface worker
-    /// - `user_database` - the user database
+    /// - `ingress_queue` - the queue to send data to the TUN interface
     /// - `endpoint` - the QUIC endpoint
     async fn handle_incoming_connections(
-        active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
-        connection_config: ConnectionConfig,
-        address_pool: Arc<AddressPool>,
-        write_queue_sender: Arc<UnboundedSender<Bytes>>,
-        user_database: Arc<UserDatabase>,
+        &self,
+        ingress_queue: UnboundedSender<Bytes>,
         endpoint: Endpoint,
     ) -> Result<()> {
         info!(
@@ -198,45 +121,49 @@ impl QuincyTunnel {
             endpoint.local_addr().expect("Endpoint has a local address")
         );
 
-        while let Some(handshake) = endpoint.accept().await {
-            debug!(
-                "Received incoming connection from '{}'",
-                handshake.remote_address().ip()
-            );
+        let mut connection_tasks = FuturesUnordered::new();
 
-            let client_tun_ip = address_pool
-                .next_available_address()
-                .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
-
-            let mut connection = QuincyConnection::new(
-                handshake.await?,
-                &connection_config,
-                write_queue_sender.clone(),
-                user_database.clone(),
-                client_tun_ip,
-            );
-
-            let connection = match connection.start().await {
-                Ok(_) => connection,
-                Err(e) => {
-                    error!(
-                        "Failed to set up connection with client '{client_tun_ip}': {e}",
-                        client_tun_ip = client_tun_ip.addr(),
-                        e = e
+        loop {
+            tokio::select! {
+                Some(handshake) = endpoint.accept() => {
+                    debug!(
+                        "Received incoming connection from '{}'",
+                        handshake.remote_address().ip()
                     );
-                    continue;
+
+                    let client_tun_ip = self.address_pool
+                        .next_available_address()
+                        .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
+
+                    let quic_connection = Arc::new(handshake.await?);
+                    let (connection_sender, connection_receiver) = mpsc::unbounded_channel();
+
+                    let mut connection = QuincyConnection::new(
+                        quic_connection.clone(),
+                        client_tun_ip,
+                        ingress_queue.clone(),
+                    );
+
+                    if let Err(e) = connection.authenticate(&self.user_database, self.connection_config.timeout).await {
+                        warn!("Failed to authenticate client {client_tun_ip}: {e}");
+                        self.address_pool.release_address(&client_tun_ip.addr());
+                        continue;
+                    }
+
+                    connection_tasks.push(tokio::spawn(connection.run(connection_receiver)));
+                    self.connection_queues.insert(client_tun_ip.addr(), connection_sender);
                 }
-            };
 
-            info!(
-                "Connection established: {client_tun_ip} ({})",
-                connection.remote_address(),
-            );
+                Some(connection) = connection_tasks.next() => {
+                    let (connection, err) = connection?;
+                    let client_address = &connection.client_address.addr();
 
-            active_connections.insert(client_tun_ip.addr(), connection);
+                    self.connection_queues.remove(client_address);
+                    self.address_pool.release_address(client_address);
+                    warn!("Connection with client {client_address} has encountered an error: {err}");
+                }
+            }
         }
-
-        Ok(())
     }
 
     /// Creates a Quinn QUIC endpoint that clients can connect to.
@@ -268,14 +195,14 @@ impl QuincyTunnel {
     ///
     /// ### Arguments
     /// - `tun_read` - the read half of the TUN interface
-    /// - `active_connections` - a map of connections and their associated client IP addresses
+    /// - `connection_queues` - the queues for sending data to the QUIC connections
     /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
     async fn process_outbound_traffic(
         mut tun_read: impl InterfaceRead,
-        active_connections: Arc<DashMap<IpAddr, QuincyConnection>>,
+        connection_queues: ConnectionQueues,
         buffer_size: usize,
     ) -> Result<()> {
-        debug!("Started outbound traffic task (interface -> QUIC tunnel)");
+        debug!("Started tunnel outbound traffic task (interface -> connection queue)");
 
         loop {
             let buf = tun_read.read_packet(buffer_size).await?;
@@ -302,31 +229,13 @@ impl QuincyTunnel {
             };
             debug!("Destination address for packet: {dest_addr}");
 
-            let connection = match active_connections.get(&dest_addr) {
-                Some(connection) => connection,
+            let connection_queue = match connection_queues.get(&dest_addr) {
+                Some(connection_queue) => connection_queue,
                 None => continue,
             };
             debug!("Found connection for IP {dest_addr}");
 
-            let max_datagram_size = connection.max_datagram_size().ok_or_else(|| {
-                anyhow!(
-                    "Client {} failed to provide maximum datagram size",
-                    connection.remote_address()
-                )
-            })?;
-
-            if buf.len() > max_datagram_size {
-                warn!(
-                    "Dropping packet of size {} due to maximum datagram size being {}",
-                    buf.len(),
-                    max_datagram_size
-                );
-                continue;
-            }
-
-            debug!("Quinn MTU: {max_datagram_size}");
-
-            connection.send_datagram(buf).await?;
+            connection_queue.send(buf)?;
         }
     }
 
@@ -334,17 +243,16 @@ impl QuincyTunnel {
     ///
     /// ### Arguments
     /// - `tun_write` - the write half of the TUN interface
-    /// - `write_queue_receiver` - the channel for sending data to the TUN interface worker
+    /// - `ingress_queue` - the queue for sending data to the TUN interface
     async fn process_inbound_traffic(
         mut tun_write: impl InterfaceWrite,
-        mut write_queue_receiver: UnboundedReceiver<Bytes>,
+        mut ingress_queue: UnboundedReceiver<Bytes>,
     ) -> Result<()> {
-        debug!("Started inbound traffic task (QUIC tunnel -> interface)");
+        debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
-        while let Some(buf) = write_queue_receiver.recv().await {
-            debug!("Sent {} bytes to tunnel", buf.len());
+        while let Some(buf) = ingress_queue.recv().await {
+            debug!("Sending {} bytes to tunnel", buf.len());
             tun_write.write_packet(buf).await?;
-            debug!("Done");
         }
 
         Ok(())
