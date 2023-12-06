@@ -38,9 +38,6 @@ interface_impl!(
 #[rstest]
 #[tokio::test]
 async fn test_end_to_end_communication(client_config: ClientConfig, server_config: ServerConfig) {
-    #[cfg(target_os = "macos")]
-    use quincy::interface::prepend_packet_info_header;
-
     let client = QuincyClient::new(client_config);
     let server = QuincyServer::new(server_config).unwrap();
 
@@ -52,8 +49,6 @@ async fn test_end_to_end_communication(client_config: ClientConfig, server_confi
 
     // Test client -> server
     let test_packet = dummy_packet(ip_client, ip_server);
-    #[cfg(target_os = "macos")]
-    let test_packet = prepend_packet_info_header(test_packet).unwrap();
 
     TEST_QUEUE_CLIENT_RECV
         .0
@@ -68,8 +63,6 @@ async fn test_end_to_end_communication(client_config: ClientConfig, server_confi
 
     // Test server -> client
     let test_packet = dummy_packet(ip_server, ip_client);
-    #[cfg(target_os = "macos")]
-    let test_packet = prepend_packet_info_header(test_packet).unwrap();
 
     TEST_QUEUE_SERVER_RECV
         .0

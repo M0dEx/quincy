@@ -25,10 +25,7 @@ pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
     #[inline]
     async fn write_packet(&mut self, packet_data: Bytes) -> Result<()> {
         #[cfg(target_os = "macos")]
-        let packet_data = prepend_packet_info_header(packet_data)?;
-
-        #[cfg(not(target_os = "macos"))]
-        let packet_data = packet_data;
+        let packet_data = prepend_packet_info_header(&packet_data)?;
 
         self.write_all(&packet_data).await?;
 
@@ -45,14 +42,14 @@ pub fn truncate_packet_info_header(data: Bytes) -> Bytes {
 
 #[cfg(target_os = "macos")]
 #[inline]
-pub fn prepend_packet_info_header(data: Bytes) -> Result<Bytes> {
+pub fn prepend_packet_info_header(data: &Bytes) -> Result<Bytes> {
     use crate::constants::DARWIN_PI_HEADER_IPV4;
     use crate::constants::DARWIN_PI_HEADER_IPV6;
     use anyhow::anyhow;
     use etherparse::IpHeader;
     use etherparse::PacketHeaders;
 
-    let packet_headers = PacketHeaders::from_ip_slice(&data)?;
+    let packet_headers = PacketHeaders::from_ip_slice(data)?;
     let ip_header = packet_headers
         .ip
         .ok_or_else(|| anyhow!("Received packet with invalid IP header"))?;

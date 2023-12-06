@@ -1,26 +1,22 @@
 use crate::auth::server::AuthServer;
 use crate::auth::user::UserDatabase;
-use crate::config::ConnectionConfig;
-use crate::utils::tasks::join_or_abort_task;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
-use delegate::delegate;
 use ipnet::IpNet;
 
 use quinn::Connection;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::task::JoinHandle;
-use tracing::{debug, error};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tracing::{debug, info, warn};
 
 /// Represents a Quincy connection encapsulating authentication and IO.
+#[derive(Clone)]
 pub struct QuincyConnection {
     connection: Arc<Connection>,
-    auth_server: AuthServer,
-    tun_queue: Arc<UnboundedSender<Bytes>>,
-    tasks: Vec<JoinHandle<Result<()>>>,
+    pub username: Option<String>,
+    pub client_address: IpNet,
+    ingress_queue: UnboundedSender<Bytes>,
 }
 
 impl QuincyConnection {
@@ -33,83 +29,105 @@ impl QuincyConnection {
     /// - `auth_timeout` - the authentication timeout
     /// - `client_address` - the assigned client address
     pub fn new(
-        connection: Connection,
-        connection_config: &ConnectionConfig,
-        tun_queue: Arc<UnboundedSender<Bytes>>,
-        user_database: Arc<UserDatabase>,
+        connection: Arc<Connection>,
         client_address: IpNet,
+        tun_queue: UnboundedSender<Bytes>,
     ) -> Self {
-        let connection = Arc::new(connection);
-        let auth_server = AuthServer::new(
-            user_database,
-            connection.clone(),
-            client_address,
-            connection_config.timeout,
-        );
-
         Self {
             connection,
-            auth_server,
-            tun_queue,
-            tasks: Vec::new(),
+            username: None,
+            client_address,
+            ingress_queue: tun_queue,
         }
+    }
+
+    pub async fn authenticate(
+        &mut self,
+        user_database: &UserDatabase,
+        connection_timeout: Duration,
+    ) -> Result<()> {
+        let auth_server = AuthServer::new(
+            user_database,
+            self.connection.clone(),
+            self.client_address,
+            connection_timeout,
+        );
+
+        let username = auth_server.handle_authentication().await?;
+
+        info!(
+            "Connection established: user = {}, client address = {}, remote address = {}",
+            username,
+            self.client_address.addr(),
+            self.connection.remote_address().ip(),
+        );
+
+        self.username = Some(username);
+
+        Ok(())
     }
 
     /// Starts the tasks for this instance of Quincy connection.
-    pub async fn start(&mut self) -> Result<()> {
-        if self.is_ok() {
-            return Err(anyhow!(
-                "This instance of Quincy connection is already running"
-            ));
+    pub async fn run(self, egress_queue: UnboundedReceiver<Bytes>) -> (Self, Error) {
+        if self.username.is_none() {
+            let client_address = self.client_address.addr();
+            return (
+                self,
+                anyhow!("Client '{client_address}' is not authenticated"),
+            );
         }
 
-        self.auth_server.handle_authentication().await?;
+        let connection = Arc::new(self.clone());
 
-        // Additional authentication checks are not needed if initial authentication succeeded
-        self.tasks.push(tokio::spawn(Self::process_incoming_data(
-            self.connection.clone(),
-            self.tun_queue.clone(),
-        )));
+        let outgoing_data_task =
+            tokio::spawn(connection.clone().process_outgoing_data(egress_queue));
+        let incoming_data_task = tokio::spawn(connection.clone().process_incoming_data());
 
-        Ok(())
+        let err = tokio::select! {
+            outgoing_data_err = outgoing_data_task => outgoing_data_err,
+            incoming_data_err = incoming_data_task => incoming_data_err,
+        }
+        .expect("Joining tasks never fails")
+        .expect_err("Connection tasks always return an error");
+
+        (self, err)
     }
 
-    /// Stops the tasks for this instance of Quincy connection.
-    pub async fn stop(&mut self) -> Result<()> {
-        let timeout = Duration::from_secs(1);
+    async fn process_outgoing_data(
+        self: Arc<Self>,
+        mut egress_queue: UnboundedReceiver<Bytes>,
+    ) -> Result<()> {
+        loop {
+            let data = egress_queue
+                .recv()
+                .await
+                .ok_or_else(|| anyhow!("Egress queue has been closed"))?;
 
-        while let Some(task) = self.tasks.pop() {
-            if let Some(Err(e)) = join_or_abort_task(task, timeout).await {
-                error!("An error occurred in Quincy connection: {e}")
+            let max_datagram_size = self.connection.max_datagram_size().ok_or_else(|| {
+                anyhow!(
+                    "Client {} failed to provide maximum datagram size",
+                    self.connection.remote_address().ip()
+                )
+            })?;
+
+            debug!("Maximum QUIC datagram size: {max_datagram_size}");
+
+            if data.len() > max_datagram_size {
+                warn!(
+                    "Dropping packet of size {} due to maximum datagram size being {}",
+                    data.len(),
+                    max_datagram_size
+                );
+                continue;
             }
-        }
 
-        Ok(())
-    }
+            debug!(
+                "Sending {} bytes to {:?}",
+                data.len(),
+                self.client_address.addr()
+            );
 
-    /// Checks whether this instance of Quincy connection is running.
-    ///
-    /// ### Returns
-    /// - `true` if all connection tasks are running, `false` if not
-    pub fn is_ok(&self) -> bool {
-        !self.tasks.is_empty() && self.tasks.iter().all(|task| !task.is_finished())
-    }
-
-    /// Sends an unreliable datagram to the client.
-    ///
-    /// ### Arguments
-    /// - `data` - the data to be sent
-    #[inline]
-    pub async fn send_datagram(&self, data: Bytes) -> Result<()> {
-        self.connection.send_datagram(data)?;
-
-        Ok(())
-    }
-
-    delegate! {
-        to self.connection {
-            pub fn max_datagram_size(&self) -> Option<usize>;
-            pub fn remote_address(&self) -> SocketAddr;
+            self.connection.send_datagram(data)?;
         }
     }
 
@@ -118,19 +136,17 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - a reference to the underlying QUIC connection
     /// - `tun_queue` - a sender of an unbounded queue used by the tunnel worker to receive data
-    async fn process_incoming_data(
-        connection: Arc<Connection>,
-        tun_queue: Arc<UnboundedSender<Bytes>>,
-    ) -> Result<()> {
+    async fn process_incoming_data(self: Arc<Self>) -> Result<()> {
         loop {
-            let data = connection.read_datagram().await?;
+            let data = self.connection.read_datagram().await?;
+
             debug!(
                 "Received {} bytes from {:?}",
                 data.len(),
-                connection.remote_address()
+                self.client_address.addr()
             );
 
-            tun_queue.send(data)?;
+            self.ingress_queue.send(data)?;
         }
     }
 }

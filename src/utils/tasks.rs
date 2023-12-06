@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures::stream::FuturesUnordered;
 use std::time::Duration;
 use tokio::task::{AbortHandle, JoinError, JoinHandle};
 use tokio::time::sleep;
@@ -24,10 +25,22 @@ async fn abort_after(abort_handle: AbortHandle, duration: Duration) -> Result<()
 ///
 /// ### Returns
 /// - `R` - the result of the task
-pub async fn join_or_abort_task<R>(task: JoinHandle<R>, duration: Duration) -> Option<R> {
+pub async fn join_or_abort_task<R>(task: &mut JoinHandle<R>, duration: Duration) -> Result<R> {
     let abort_handle = task.abort_handle();
 
-    let (_, result) = try_join!(abort_after(abort_handle, duration), task).ok()?;
+    let (_, result) = try_join!(abort_after(abort_handle, duration), task)?;
 
-    Some(result)
+    Ok(result)
+}
+
+/// Joins all tasks in a FuturesUnordered or aborts them after a specified duration.
+pub async fn join_or_abort_all<R>(
+    mut tasks: FuturesUnordered<JoinHandle<R>>,
+    duration: Duration,
+) -> Result<()> {
+    for task in tasks.iter_mut() {
+        join_or_abort_task(task, duration).await?;
+    }
+
+    Ok(())
 }

@@ -47,8 +47,8 @@ impl AddressPool {
     ///
     /// ### Arguments
     /// - `address` - the address to release
-    pub fn release_address(&self, address: IpAddr) {
-        self.used_addresses.remove(&address);
+    pub fn release_address(&self, address: &IpAddr) {
+        self.used_addresses.remove(address);
     }
 
     /// Resets the address pool by releasing all addresses.
@@ -89,7 +89,7 @@ mod tests {
         );
 
         assert_eq!(pool.next_available_address(), None);
-        pool.release_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        pool.release_address(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
 
         assert_eq!(
             pool.next_available_address().unwrap(),
