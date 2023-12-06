@@ -29,6 +29,9 @@ pub const AUTH_TIMEOUT_MESSAGE: &str = "Authentication timed out";
 /// Buffer size for authentication messages.
 pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
 
+/// Packet buffer size for operations on the TUN interface.
+pub const PACKET_BUFFER_SIZE: usize = 4;
+
 /// Represents the size of the packet info header on UNIX systems.
 #[cfg(target_os = "macos")]
 pub const DARWIN_PI_HEADER_LENGTH: usize = 4;

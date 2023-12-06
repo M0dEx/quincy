@@ -18,7 +18,7 @@ use quinn::Endpoint;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::constants::QUINN_RUNTIME;
+use crate::constants::{PACKET_BUFFER_SIZE, QUINN_RUNTIME};
 use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
 use crate::utils::tasks::join_or_abort_all;
 use tracing::{debug, info, warn};
@@ -250,11 +250,15 @@ impl QuincyTunnel {
     ) -> Result<()> {
         debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
-        while let Some(buf) = ingress_queue.recv().await {
-            debug!("Sending {} bytes to tunnel", buf.len());
-            tun_write.write_packet(buf).await?;
-        }
+        let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
 
-        Ok(())
+        loop {
+            packets.clear();
+            ingress_queue
+                .recv_many(&mut packets, PACKET_BUFFER_SIZE)
+                .await;
+
+            tun_write.write_packets(&packets).await?;
+        }
     }
 }

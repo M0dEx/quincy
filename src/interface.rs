@@ -23,11 +23,21 @@ pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Send + 'static {
 
 pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
     #[inline]
-    async fn write_packet(&mut self, packet_data: Bytes) -> Result<()> {
+    async fn write_packet(&mut self, packet_data: &Bytes) -> Result<()> {
         #[cfg(target_os = "macos")]
-        let packet_data = prepend_packet_info_header(&packet_data)?;
+        let packet_data = &prepend_packet_info_header(packet_data)?;
 
-        self.write_all(&packet_data).await?;
+        self.write_all(packet_data).await?;
+
+        Ok(())
+    }
+
+    #[inline]
+    async fn write_packets(&mut self, packets: &[Bytes]) -> Result<()> {
+        // TODO: Implement this using write_vectored when it actually works
+        for packet in packets {
+            self.write_packet(packet).await?;
+        }
 
         Ok(())
     }
