@@ -7,7 +7,7 @@ use crate::config::{ConnectionConfig, TunnelConfig};
 use crate::server::address_pool::AddressPool;
 use crate::server::connection::QuincyConnection;
 use crate::utils::socket::bind_socket;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytes::Bytes;
 use dashmap::DashMap;
 use etherparse::{IpHeader, PacketHeaders};
@@ -117,46 +117,55 @@ impl QuincyTunnel {
         endpoint: Endpoint,
     ) -> Result<()> {
         info!(
-            "Listening for incoming connections: {}",
+            "Starting connection handler: {}",
             endpoint.local_addr().expect("Endpoint has a local address")
         );
 
+        let mut authentication_tasks = FuturesUnordered::new();
         let mut connection_tasks = FuturesUnordered::new();
 
         loop {
             tokio::select! {
+                // New connections
                 Some(handshake) = endpoint.accept() => {
                     debug!(
                         "Received incoming connection from '{}'",
                         handshake.remote_address().ip()
                     );
 
-                    let client_tun_ip = self.address_pool
-                        .next_available_address()
-                        .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
+                    let quic_connection = handshake.await?;
 
-                    let quic_connection = Arc::new(handshake.await?);
-                    let (connection_sender, connection_receiver) = mpsc::unbounded_channel();
-
-                    let mut connection = QuincyConnection::new(
-                        quic_connection.clone(),
-                        client_tun_ip,
+                    let connection = QuincyConnection::new(
+                        quic_connection,
                         ingress_queue.clone(),
                     );
 
-                    if let Err(e) = connection.authenticate(&self.user_database, self.connection_config.timeout).await {
-                        warn!("Failed to authenticate client {client_tun_ip}: {e}");
-                        self.address_pool.release_address(&client_tun_ip.addr());
-                        continue;
-                    }
-
-                    connection_tasks.push(tokio::spawn(connection.run(connection_receiver)));
-                    self.connection_queues.insert(client_tun_ip.addr(), connection_sender);
+                    authentication_tasks.push(
+                        connection.authenticate(&self.user_database, &self.address_pool, self.connection_config.timeout)
+                    );
                 }
 
+                // Authentication tasks
+                Some(connection) = authentication_tasks.next() => {
+                    let connection = match connection {
+                        Ok(connection) => connection,
+                        Err(e) => {
+                            warn!("Failed to authenticate client: {e}");
+                            continue;
+                        }
+                    };
+
+                    let client_address = connection.client_address()?.addr();
+                    let (connection_sender, connection_receiver) = mpsc::unbounded_channel();
+
+                    connection_tasks.push(tokio::spawn(connection.run(connection_receiver)));
+                    self.connection_queues.insert(client_address, connection_sender);
+                }
+
+                // Connection tasks
                 Some(connection) = connection_tasks.next() => {
                     let (connection, err) = connection?;
-                    let client_address = &connection.client_address.addr();
+                    let client_address = &connection.client_address()?.addr();
 
                     self.connection_queues.remove(client_address);
                     self.address_pool.release_address(client_address);

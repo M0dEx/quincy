@@ -1,6 +1,7 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use crate::constants::{AUTH_FAILED_MESSAGE, AUTH_MESSAGE_BUFFER_SIZE, AUTH_TIMEOUT_MESSAGE};
+use crate::server::address_pool::AddressPool;
 use anyhow::{anyhow, Context, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;
@@ -21,7 +22,7 @@ pub enum AuthServerMessage {
 /// Represents an authentication server handling initial authentication and session management.
 pub struct AuthServer<'a> {
     user_database: &'a UserDatabase,
-    client_address: IpNet,
+    address_pool: &'a AddressPool,
     connection: Arc<Connection>,
     auth_timeout: Duration,
 }
@@ -29,20 +30,20 @@ pub struct AuthServer<'a> {
 impl<'a> AuthServer<'a> {
     pub fn new(
         user_database: &'a UserDatabase,
+        address_pool: &'a AddressPool,
         connection: Arc<Connection>,
-        client_address: IpNet,
         auth_timeout: Duration,
     ) -> Self {
         Self {
             user_database,
-            client_address,
+            address_pool,
             connection,
             auth_timeout,
         }
     }
 
     /// Handles authentication for a client.
-    pub async fn handle_authentication(&self) -> Result<String> {
+    pub async fn handle_authentication(&self) -> Result<(String, IpNet)> {
         let (send_stream, mut recv_stream) =
             match timeout(self.auth_timeout, self.connection.accept_bi()).await {
                 Ok(Ok(streams)) => streams,
@@ -77,7 +78,7 @@ impl<'a> AuthServer<'a> {
         mut send_stream: SendStream,
         username: String,
         password: String,
-    ) -> Result<String> {
+    ) -> Result<(String, IpNet)> {
         let auth_result = self.user_database.authenticate(&username, password).await;
 
         if auth_result.is_err() {
@@ -87,14 +88,17 @@ impl<'a> AuthServer<'a> {
                 .expect_err("Handle failure always returns an error"));
         }
 
-        let response = AuthServerMessage::Authenticated(
-            self.client_address.addr(),
-            self.client_address.netmask(),
-        );
+        let client_address = self
+            .address_pool
+            .next_available_address()
+            .ok_or_else(|| anyhow!("Could not find an available address for client"))?;
+
+        let response =
+            AuthServerMessage::Authenticated(client_address.addr(), client_address.netmask());
 
         Self::send_message(&mut send_stream, response).await?;
 
-        Ok(username)
+        Ok((username, client_address))
     }
 
     /// Handles a failure during authentication.
