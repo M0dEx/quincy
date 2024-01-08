@@ -4,6 +4,7 @@ use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
 use ipnet::IpNet;
 
+use crate::server::address_pool::AddressPool;
 use quinn::Connection;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,8 +15,8 @@ use tracing::{debug, info, warn};
 #[derive(Clone)]
 pub struct QuincyConnection {
     connection: Arc<Connection>,
-    pub username: Option<String>,
-    pub client_address: IpNet,
+    username: Option<String>,
+    client_address: Option<IpNet>,
     ingress_queue: UnboundedSender<Bytes>,
 }
 
@@ -25,55 +26,51 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - the underlying QUIC connection
     /// - `tun_queue` - the queue to send data to the TUN interface
-    /// - `user_database` - the user database
-    /// - `auth_timeout` - the authentication timeout
-    /// - `client_address` - the assigned client address
-    pub fn new(
-        connection: Arc<Connection>,
-        client_address: IpNet,
-        tun_queue: UnboundedSender<Bytes>,
-    ) -> Self {
+    pub fn new(connection: Connection, tun_queue: UnboundedSender<Bytes>) -> Self {
         Self {
-            connection,
+            connection: Arc::new(connection),
             username: None,
-            client_address,
+            client_address: None,
             ingress_queue: tun_queue,
         }
     }
 
+    /// Attempts to authenticate the client.
     pub async fn authenticate(
-        &mut self,
+        mut self,
         user_database: &UserDatabase,
+        address_pool: &AddressPool,
         connection_timeout: Duration,
-    ) -> Result<()> {
+    ) -> Result<Self> {
         let auth_server = AuthServer::new(
             user_database,
+            address_pool,
             self.connection.clone(),
-            self.client_address,
             connection_timeout,
         );
 
-        let username = auth_server.handle_authentication().await?;
+        let (username, client_address) = auth_server.handle_authentication().await?;
 
         info!(
             "Connection established: user = {}, client address = {}, remote address = {}",
             username,
-            self.client_address.addr(),
+            client_address.addr(),
             self.connection.remote_address().ip(),
         );
 
         self.username = Some(username);
+        self.client_address = Some(client_address);
 
-        Ok(())
+        Ok(self)
     }
 
     /// Starts the tasks for this instance of Quincy connection.
     pub async fn run(self, egress_queue: UnboundedReceiver<Bytes>) -> (Self, Error) {
         if self.username.is_none() {
-            let client_address = self.client_address.addr();
+            let client_address = self.connection.remote_address();
             return (
                 self,
-                anyhow!("Client '{client_address}' is not authenticated"),
+                anyhow!("Client '{}' is not authenticated", client_address.ip()),
             );
         }
 
@@ -87,12 +84,16 @@ impl QuincyConnection {
             outgoing_data_err = outgoing_data_task => outgoing_data_err,
             incoming_data_err = incoming_data_task => incoming_data_err,
         }
-        .expect("Joining tasks never fails")
-        .expect_err("Connection tasks always return an error");
+        .expect("joining tasks never fails")
+        .expect_err("connection tasks always return an error");
 
         (self, err)
     }
 
+    /// Processes outgoing data and sends it to the QUIC connection.
+    ///
+    /// ### Arguments
+    /// - `egress_queue` - the queue to receive data from the TUN interface
     async fn process_outgoing_data(
         self: Arc<Self>,
         mut egress_queue: UnboundedReceiver<Bytes>,
@@ -101,14 +102,12 @@ impl QuincyConnection {
             let data = egress_queue
                 .recv()
                 .await
-                .ok_or_else(|| anyhow!("Egress queue has been closed"))?;
+                .ok_or(anyhow!("Egress queue has been closed"))?;
 
-            let max_datagram_size = self.connection.max_datagram_size().ok_or_else(|| {
-                anyhow!(
-                    "Client {} failed to provide maximum datagram size",
-                    self.connection.remote_address().ip()
-                )
-            })?;
+            let max_datagram_size = self.connection.max_datagram_size().ok_or(anyhow!(
+                "Client {} failed to provide maximum datagram size",
+                self.client_address()?.addr()
+            ))?;
 
             debug!("Maximum QUIC datagram size: {max_datagram_size}");
 
@@ -124,7 +123,7 @@ impl QuincyConnection {
             debug!(
                 "Sending {} bytes to {:?}",
                 data.len(),
-                self.client_address.addr()
+                self.client_address()?.addr()
             );
 
             self.connection.send_datagram(data)?;
@@ -132,10 +131,6 @@ impl QuincyConnection {
     }
 
     /// Processes incoming data and sends it to the TUN interface queue.
-    ///
-    /// ### Arguments
-    /// - `connection` - a reference to the underlying QUIC connection
-    /// - `tun_queue` - a sender of an unbounded queue used by the tunnel worker to receive data
     async fn process_incoming_data(self: Arc<Self>) -> Result<()> {
         loop {
             let data = self.connection.read_datagram().await?;
@@ -143,10 +138,24 @@ impl QuincyConnection {
             debug!(
                 "Received {} bytes from {:?}",
                 data.len(),
-                self.client_address.addr()
+                self.client_address()?.addr()
             );
 
             self.ingress_queue.send(data)?;
         }
+    }
+
+    /// Returns the username associated with this connection.
+    pub fn username(&self) -> Result<&str> {
+        self.username
+            .as_deref()
+            .ok_or(anyhow!("Connection is unauthenticated"))
+    }
+
+    /// Returns the client address associated with this connection.
+    pub fn client_address(&self) -> Result<&IpNet> {
+        self.client_address
+            .as_ref()
+            .ok_or(anyhow!("Connection is unauthenticated"))
     }
 }
