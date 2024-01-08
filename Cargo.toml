@@ -10,7 +10,7 @@ repository = "https://github.com/M0dEx/quincy"
 keywords = ["vpn", "quic", "tunnel", "networking", "tokio"]
 categories = ["command-line-utilities", "network-programming"]
 edition = "2021"
-rust-version = "1.76"
+rust-version = "1.75"
 
 [lib]
 name = "quincy"
