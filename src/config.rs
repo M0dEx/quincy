@@ -3,7 +3,7 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use quinn::{EndpointConfig, MtuDiscoveryConfig, TransportConfig};
+use quinn::{EndpointConfig, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -82,7 +82,8 @@ pub struct ClientAuthenticationConfig {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
     /// The MTU to use for connections and the TUN interface
-    pub mtu: i32,
+    #[serde(default = "default_mtu")]
+    pub mtu: u16,
     /// Timeout
     #[serde(default = "default_timeout")]
     pub timeout: Duration,
@@ -187,6 +188,10 @@ fn default_buffer_size() -> u64 {
     2097152
 }
 
+fn default_mtu() -> u16 {
+    1400
+}
+
 fn default_timeout() -> Duration {
     Duration::from_secs(30)
 }
@@ -232,14 +237,12 @@ impl ClientConfig {
 
         let mut quinn_config = quinn::ClientConfig::new(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
-        let mut mtu_config = MtuDiscoveryConfig::default();
 
         transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
         transport_config.keep_alive_interval(Some(self.connection.keep_alive_interval));
+        transport_config.initial_mtu(self.connection.mtu);
+        transport_config.min_mtu(self.connection.mtu);
 
-        mtu_config.upper_bound(self.connection.mtu as u16 + QUIC_MTU_OVERHEAD);
-
-        transport_config.mtu_discovery_config(Some(mtu_config));
         quinn_config.transport_config(Arc::new(transport_config));
 
         Ok(quinn_config)
@@ -274,13 +277,11 @@ impl TunnelConfig {
 
         let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
-        let mut mtu_config = MtuDiscoveryConfig::default();
 
         transport_config.max_idle_timeout(Some(connection_config.timeout.try_into()?));
+        transport_config.initial_mtu(connection_config.mtu);
+        transport_config.min_mtu(connection_config.mtu);
 
-        mtu_config.upper_bound(connection_config.mtu as u16 + QUIC_MTU_OVERHEAD);
-
-        transport_config.mtu_discovery_config(Some(mtu_config));
         quinn_config.transport_config(Arc::new(transport_config));
 
         Ok(quinn_config)
@@ -290,7 +291,7 @@ impl TunnelConfig {
 impl ConnectionConfig {
     pub fn as_endpoint_config(&self) -> Result<EndpointConfig> {
         let mut endpoint_config = EndpointConfig::default();
-        endpoint_config.max_udp_payload_size(self.mtu as u16 + QUIC_MTU_OVERHEAD)?;
+        endpoint_config.max_udp_payload_size(self.mtu + QUIC_MTU_OVERHEAD)?;
 
         Ok(endpoint_config)
     }

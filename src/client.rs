@@ -14,7 +14,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Represents a Quincy client that connects to a server and relays packets between the server and a TUN interface.
 pub struct QuincyClient {
@@ -177,19 +177,6 @@ impl QuincyClient {
 
         loop {
             let data = read_interface.read_packet(interface_mtu).await?;
-
-            let quinn_mtu = connection
-                .max_datagram_size()
-                .ok_or_else(|| anyhow!("The Quincy server does not support datagram transfer"))?;
-
-            if data.len() > quinn_mtu {
-                warn!(
-                    "Dropping packet of size {} due to maximum datagram size being {}",
-                    data.len(),
-                    quinn_mtu
-                );
-                continue;
-            }
 
             debug!(
                 "Sending {} bytes to {:?}",

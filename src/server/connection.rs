@@ -9,7 +9,7 @@ use quinn::Connection;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Represents a Quincy connection encapsulating authentication and IO.
 #[derive(Clone)]
@@ -103,22 +103,6 @@ impl QuincyConnection {
                 .recv()
                 .await
                 .ok_or(anyhow!("Egress queue has been closed"))?;
-
-            let max_datagram_size = self.connection.max_datagram_size().ok_or(anyhow!(
-                "Client {} failed to provide maximum datagram size",
-                self.client_address()?.addr()
-            ))?;
-
-            debug!("Maximum QUIC datagram size: {max_datagram_size}");
-
-            if data.len() > max_datagram_size {
-                warn!(
-                    "Dropping packet of size {} due to maximum datagram size being {}",
-                    data.len(),
-                    max_datagram_size
-                );
-                continue;
-            }
 
             debug!(
                 "Sending {} bytes to {:?}",

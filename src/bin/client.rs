@@ -5,7 +5,7 @@ use quincy::config::{ClientConfig, FromPath};
 use quincy::utils::cli::Args;
 use quincy::utils::tracing::enable_tracing;
 use tracing::error;
-use tun::AsyncDevice;
+use tun2::AsyncDevice;
 
 #[tokio::main]
 async fn main() {

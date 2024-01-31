@@ -32,7 +32,7 @@ path = "src/bin/users.rs"
 quinn = "^0.10.1"
 
 # Interfaces and networking
-tun = { version = "^0.6.0", features = ["async"] }
+tun2 = { version = "^1.0.0", features = ["async"] }
 socket2 = "^0.5.2"
 bytes = "^1.4"
 etherparse = "^0.13.0"
