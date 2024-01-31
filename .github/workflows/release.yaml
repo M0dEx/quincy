@@ -52,6 +52,35 @@ jobs:
           files: |
             quincy-linux-x86_64.tar.gz
 
+  build-macos-binaries:
+    name: Build arm64 macOS binaries
+
+    runs-on: macos-13
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout repository
+      - uses: dtolnay/rust-toolchain@nightly
+        name: Set up toolchain
+      - uses: Swatinem/rust-cache@v2
+        name: Cache toolchain and dependencies
+      - name: Build arm64 macOS binaries
+        run: |
+          cargo build --release
+          mkdir ./quincy-macos-arm64
+          cp target/release/quincy-client quincy-macos-arm64/
+          cp target/release/quincy-server quincy-macos-arm64/
+          cp target/release/quincy-users quincy-macos-arm64/
+          tar zcf quincy-macos-arm64.tar.gz -C quincy-macos-arm64 .
+      - uses: softprops/action-gh-release@v1
+        name: Add binary to release
+        with:
+          files: |
+            quincy-macos-arm64.tar.gz
+
   build-windows-binaries:
     name: Build x86_64 Windows binaries
 

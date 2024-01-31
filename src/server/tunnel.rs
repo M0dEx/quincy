@@ -75,7 +75,7 @@ impl QuincyTunnel {
         let interface = I::create(interface_address, self.connection_config.mtu)?;
 
         let (tun_read, tun_write) = tokio::io::split(interface);
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::unbounded_channel();
 
         let quinn_configuration = self
             .tunnel_config
