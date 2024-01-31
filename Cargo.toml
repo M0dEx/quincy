@@ -27,6 +27,12 @@ path = "src/bin/server.rs"
 name = "quincy-users"
 path = "src/bin/users.rs"
 
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
 [dependencies]
 # Quinn
 quinn = "^0.10.1"
