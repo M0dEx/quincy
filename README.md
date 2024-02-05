@@ -79,7 +79,8 @@ With the configuration file in place, the client can be started using the follow
 $ quincy-client --config-path examples/client.toml
 ```
 
-Routes are set up by default on some systems (Linux) and not set-up at all on others (MacOS).
+Routes are set by default to the address and netmask received from the server.
+Any additional routes now have to be set up manually.
 
 ### Server
 The Quincy server requires a separate configuration file, an example of which can be found in `examples/server.toml`:

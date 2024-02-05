@@ -49,7 +49,7 @@ impl Interface for AsyncDevice {
         config
             .address(interface_address.addr())
             .netmask(interface_address.netmask())
-            .mtu(mtu as usize)
+            .mtu(mtu)
             .up();
 
         // Needed due to rust-tun using the destination address as the default GW
