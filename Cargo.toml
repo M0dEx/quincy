@@ -41,7 +41,7 @@ quinn = "^0.10.1"
 tun2 = { version = "^1.0.0", features = ["async"] }
 socket2 = "^0.5.2"
 bytes = "^1.4"
-etherparse = "^0.13.0"
+etherparse = "^0.14.0"
 ipnet = "^2.7"
 libc = "^0.2.147"
 
