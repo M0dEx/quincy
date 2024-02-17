@@ -10,7 +10,7 @@ use crate::utils::socket::bind_socket;
 use anyhow::Result;
 use bytes::Bytes;
 use dashmap::DashMap;
-use etherparse::{IpHeader, PacketHeaders};
+use etherparse::{NetHeaders, PacketHeaders};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use ipnet::Ipv4Net;
@@ -224,17 +224,17 @@ impl QuincyTunnel {
                 }
             };
 
-            let ip_header = match headers.ip {
-                Some(ip_header) => ip_header,
+            let net_header = match headers.net {
+                Some(net) => net,
                 None => {
                     warn!("Received a packet with invalid IP header");
                     continue;
                 }
             };
 
-            let dest_addr: IpAddr = match ip_header {
-                IpHeader::Version4(header, _) => header.destination.into(),
-                IpHeader::Version6(header, _) => header.destination.into(),
+            let dest_addr: IpAddr = match net_header {
+                NetHeaders::Ipv4(header, _) => header.destination.into(),
+                NetHeaders::Ipv6(header, _) => header.destination.into(),
             };
             debug!("Destination address for packet: {dest_addr}");
 

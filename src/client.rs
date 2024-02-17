@@ -48,9 +48,7 @@ impl QuincyClient {
             interface,
             self.client_config.connection.mtu as usize,
         )
-        .await?;
-
-        Ok(())
+        .await
     }
 
     /// Connects to the Quincy server.

@@ -1,21 +1,11 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use quinn::Runtime;
 
-/// Represents the grace interval to add to the auth_timeout variable used for timing out a connection.
-pub const AUTH_TIMEOUT_GRACE: u64 = 5;
-
-/// Represents the size of an `Ipv4Addr` address.
-pub const IPV4_ADDR_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
-
-/// Represents the size of an `Ipv6Addr` address.
-pub const IPV6_ADDR_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
-
-/// Represents the default MTU overhead for QUIC.
-pub const QUIC_MTU_OVERHEAD: u16 = 42;
+/// Represents the maximum MTU overhead for QUIC, since the QUIC header is variable in size.
+pub const QUIC_MTU_OVERHEAD: u16 = 50;
 
 /// Represents the interval used by various cleanup tasks.
 pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);

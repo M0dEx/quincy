@@ -240,8 +240,8 @@ impl ClientConfig {
 
         transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
         transport_config.keep_alive_interval(Some(self.connection.keep_alive_interval));
-        transport_config.initial_mtu(self.connection.mtu);
-        transport_config.min_mtu(self.connection.mtu);
+        transport_config.initial_mtu(self.connection.mtu_with_overhead());
+        transport_config.min_mtu(self.connection.mtu_with_overhead());
 
         quinn_config.transport_config(Arc::new(transport_config));
 
@@ -279,8 +279,8 @@ impl TunnelConfig {
         let mut transport_config = TransportConfig::default();
 
         transport_config.max_idle_timeout(Some(connection_config.timeout.try_into()?));
-        transport_config.initial_mtu(connection_config.mtu);
-        transport_config.min_mtu(connection_config.mtu);
+        transport_config.initial_mtu(connection_config.mtu_with_overhead());
+        transport_config.min_mtu(connection_config.mtu_with_overhead());
 
         quinn_config.transport_config(Arc::new(transport_config));
 
@@ -291,8 +291,12 @@ impl TunnelConfig {
 impl ConnectionConfig {
     pub fn as_endpoint_config(&self) -> Result<EndpointConfig> {
         let mut endpoint_config = EndpointConfig::default();
-        endpoint_config.max_udp_payload_size(self.mtu + QUIC_MTU_OVERHEAD)?;
+        endpoint_config.max_udp_payload_size(self.mtu_with_overhead())?;
 
         Ok(endpoint_config)
+    }
+
+    pub fn mtu_with_overhead(&self) -> u16 {
+        self.mtu + QUIC_MTU_OVERHEAD
     }
 }
