@@ -18,6 +18,9 @@ pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
 /// Packet buffer size for operations on the TUN interface.
 pub const PACKET_BUFFER_SIZE: usize = 4;
 
+/// Packet channel size used for communication between the TUN interface and QUIC tunnels.
+pub const PACKET_CHANNEL_SIZE: usize = 1024 * 1024;
+
 /// Represents the supported TLS cipher suites for Quincy.
 pub static QUINCY_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
     rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,

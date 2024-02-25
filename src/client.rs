@@ -1,7 +1,7 @@
 use crate::auth::client::AuthClient;
 
 use crate::config::ClientConfig;
-use crate::constants::{PACKET_BUFFER_SIZE, QUINN_RUNTIME};
+use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
 use crate::utils::signal_handler::handle_ctrl_c;
 use crate::utils::socket::bind_socket;
 use crate::utils::tasks::abort_all;
@@ -15,7 +15,7 @@ use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::{debug, info};
 
 /// Represents a Quincy client that connects to a server and relays packets between the server and a TUN interface.
@@ -131,7 +131,7 @@ impl QuincyClient {
         interface_mtu: usize,
     ) -> Result<()> {
         let connection = Arc::new(connection);
-        let (tun_queue_send, tun_queue_recv) = unbounded_channel();
+        let (tun_queue_send, tun_queue_recv) = channel(PACKET_CHANNEL_SIZE);
         let (tun_read, tun_write) = interface.split();
 
         let mut tasks = FuturesUnordered::new();
@@ -198,7 +198,7 @@ impl QuincyClient {
     /// - `tun_queue` - the TUN queue
     /// - `tun_write` - the write half of the TUN interface
     async fn process_tun_queue(
-        mut tun_queue: UnboundedReceiver<Bytes>,
+        mut tun_queue: Receiver<Bytes>,
         mut tun_write: impl InterfaceWrite,
     ) -> Result<()> {
         debug!("Started TUN queue task (interface -> QUIC tunnel)");
@@ -220,7 +220,7 @@ impl QuincyClient {
     /// - `tun_queue` - the TUN queue
     async fn process_inbound_traffic(
         connection: Arc<Connection>,
-        tun_queue: UnboundedSender<Bytes>,
+        tun_queue: Sender<Bytes>,
     ) -> Result<()> {
         debug!("Started inbound traffic task (QUIC tunnel -> interface)");
 
@@ -233,7 +233,7 @@ impl QuincyClient {
                 connection.remote_address()
             );
 
-            tun_queue.send(data)?;
+            tun_queue.send(data).await?;
         }
     }
 }

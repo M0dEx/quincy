@@ -17,17 +17,16 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use ipnet::Ipv4Net;
 use quinn::{Endpoint, VarInt};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::constants::{PACKET_BUFFER_SIZE, QUINN_RUNTIME};
+use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
 use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
 use crate::utils::tasks::abort_all;
 use tracing::{debug, info, warn};
 
 use self::address_pool::AddressPool;
 
-type ConnectionQueues = Arc<DashMap<IpAddr, UnboundedSender<Bytes>>>;
+type ConnectionQueues = Arc<DashMap<IpAddr, Sender<Bytes>>>;
 
 /// Represents a Quincy server encapsulating Quincy connections and TUN interface IO.
 pub struct QuincyServer {
@@ -64,7 +63,7 @@ impl QuincyServer {
         let interface = I::create(interface_address, self.config.connection.mtu)?;
 
         let (tun_read, tun_write) = interface.split();
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = channel(PACKET_CHANNEL_SIZE);
 
         let mut tasks = FuturesUnordered::new();
 
@@ -94,7 +93,7 @@ impl QuincyServer {
     /// ### Arguments
     /// - `ingress_queue` - the queue to send data to the TUN interface
     /// - `endpoint` - the QUIC endpoint
-    async fn handle_connections(&self, ingress_queue: UnboundedSender<Bytes>) -> Result<()> {
+    async fn handle_connections(&self, ingress_queue: Sender<Bytes>) -> Result<()> {
         let endpoint = self.create_quinn_endpoint()?;
 
         info!(
@@ -137,7 +136,7 @@ impl QuincyServer {
                     };
 
                     let client_address = connection.client_address()?.addr();
-                    let (connection_sender, connection_receiver) = mpsc::unbounded_channel();
+                    let (connection_sender, connection_receiver) = channel(PACKET_CHANNEL_SIZE);
 
                     connection_tasks.push(tokio::spawn(connection.run(connection_receiver)));
                     self.connection_queues.insert(client_address, connection_sender);
@@ -234,7 +233,7 @@ impl QuincyServer {
             };
             debug!("Found connection for IP {dest_addr}");
 
-            connection_queue.send(buf)?;
+            connection_queue.send(buf).await?;
         }
     }
 
@@ -245,7 +244,7 @@ impl QuincyServer {
     /// - `ingress_queue` - the queue for sending data to the TUN interface
     async fn process_inbound_traffic(
         mut tun_write: impl InterfaceWrite,
-        mut ingress_queue: UnboundedReceiver<Bytes>,
+        mut ingress_queue: Receiver<Bytes>,
     ) -> Result<()> {
         debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
