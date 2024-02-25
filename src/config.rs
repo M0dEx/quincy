@@ -75,10 +75,10 @@ pub struct ConnectionConfig {
     /// The MTU to use for connections and the TUN interface
     #[serde(default = "default_mtu")]
     pub mtu: u16,
-    /// Timeout
+    /// The time after which a connection is considered timed out
     #[serde(default = "default_timeout")]
-    pub timeout: Duration,
-    /// Keep alive interval
+    pub connection_timeout: Duration,
+    /// Keep alive interval for connections
     #[serde(default = "default_keep_alive_interval")]
     pub keep_alive_interval: Duration,
     /// The size of the send buffer of the socket and Quinn endpoint
@@ -194,7 +194,7 @@ impl ClientConfig {
         let mut quinn_config = quinn::ClientConfig::new(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
 
-        transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
+        transport_config.max_idle_timeout(Some(self.connection.connection_timeout.try_into()?));
         transport_config.keep_alive_interval(Some(self.connection.keep_alive_interval));
         transport_config.initial_mtu(self.connection.mtu_with_overhead());
         transport_config.min_mtu(self.connection.mtu_with_overhead());
@@ -231,7 +231,7 @@ impl ServerConfig {
         let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
 
-        transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
+        transport_config.max_idle_timeout(Some(self.connection.connection_timeout.try_into()?));
         transport_config.initial_mtu(self.connection.mtu_with_overhead());
         transport_config.min_mtu(self.connection.mtu_with_overhead());
 
