@@ -1,0 +1,3 @@
+ignore:
+  # Ignore all app entrypoints because they are not unit/integration tested
+  - "src/bin"
