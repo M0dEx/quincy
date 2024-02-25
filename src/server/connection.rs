@@ -1,7 +1,9 @@
-use crate::auth::server::AuthServer;
 use crate::auth::user::UserDatabase;
+use crate::{auth::server::AuthServer, utils::tasks::abort_all};
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use ipnet::IpNet;
 
 use crate::server::address_pool::AddressPool;
@@ -74,20 +76,27 @@ impl QuincyConnection {
             );
         }
 
-        let connection = Arc::new(self.clone());
+        let connection = Arc::new(self);
 
-        let outgoing_data_task =
-            tokio::spawn(connection.clone().process_outgoing_data(egress_queue));
-        let incoming_data_task = tokio::spawn(connection.clone().process_incoming_data());
+        let mut tasks = FuturesUnordered::new();
 
-        let err = tokio::select! {
-            outgoing_data_err = outgoing_data_task => outgoing_data_err,
-            incoming_data_err = incoming_data_task => incoming_data_err,
-        }
-        .expect("joining tasks never fails")
-        .expect_err("connection tasks always return an error");
+        tasks.extend([
+            tokio::spawn(connection.clone().process_outgoing_data(egress_queue)),
+            tokio::spawn(connection.clone().process_incoming_data()),
+        ]);
 
-        (self, err)
+        let res = tasks
+            .next()
+            .await
+            .expect("tasks is not empty")
+            .expect("task is joinable");
+
+        let _ = abort_all(tasks).await;
+
+        (
+            Arc::into_inner(connection).expect("there is exactly one Arc instance at this point"),
+            res.expect_err("task failed"),
+        )
     }
 
     /// Processes outgoing data and sends it to the QUIC connection.
@@ -130,6 +139,7 @@ impl QuincyConnection {
     }
 
     /// Returns the username associated with this connection.
+    #[allow(dead_code)]
     pub fn username(&self) -> Result<&str> {
         self.username
             .as_deref()

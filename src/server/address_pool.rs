@@ -1,4 +1,3 @@
-use anyhow::Result;
 use dashmap::DashSet;
 use ipnet::{IpAddrRange, IpNet, Ipv4AddrRange, Ipv6AddrRange};
 use std::net::IpAddr;
@@ -14,13 +13,15 @@ impl AddressPool {
     ///
     /// ### Arguments
     /// - `network` - the network address and mask
-    pub fn new(network: IpNet) -> Result<Self> {
-        let used = DashSet::from_iter(vec![network.network(), network.addr(), network.broadcast()]);
-
-        Ok(Self {
+    pub fn new(network: IpNet) -> Self {
+        let pool = Self {
             network,
-            used_addresses: used,
-        })
+            used_addresses: DashSet::new(),
+        };
+
+        pool.reset();
+
+        pool
     }
 
     /// Returns the next available address if such an address exists.
@@ -74,8 +75,7 @@ mod tests {
                 Ipv4Addr::new(255, 255, 255, 252),
             )
             .unwrap(),
-        ))
-        .unwrap();
+        ));
 
         assert_eq!(
             pool.next_available_address().unwrap(),

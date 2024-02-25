@@ -1,7 +1,9 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
-use crate::constants::{AUTH_FAILED_MESSAGE, AUTH_MESSAGE_BUFFER_SIZE, AUTH_TIMEOUT_MESSAGE};
-use crate::server::address_pool::AddressPool;
+use crate::{
+    constants::{AUTH_FAILED_MESSAGE, AUTH_MESSAGE_BUFFER_SIZE, AUTH_TIMEOUT_MESSAGE},
+    server::address_pool::AddressPool,
+};
 use anyhow::{anyhow, Context, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;

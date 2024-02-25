@@ -7,33 +7,20 @@ use quinn::{EndpointConfig, TransportConfig};
 use rustls::{Certificate, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{collections::hash_map::Entry, time::Duration};
+use std::time::Duration;
 
 use crate::constants::{
     QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
 use crate::utils::certificates::{load_certificates_from_file, load_private_key_from_file};
-use tracing::{error, warn};
+use tracing::error;
 
 /// Represents the configuration for a Quincy server.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ServerConfig {
-    tunnel_path: Option<PathBuf>,
-    /// Configuration for the tunnels associated with this server
-    pub tunnels: HashMap<String, TunnelConfig>,
-    /// Miscellaneous connection configuration
-    pub connection: ConnectionConfig,
-    /// Logging configuration
-    pub log: LogConfig,
-}
-
-/// Represents the configuration for a Quincy tunnel.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct TunnelConfig {
     /// The name of the tunnel
     pub name: String,
     /// The certificate to use for the tunnel
@@ -52,6 +39,10 @@ pub struct TunnelConfig {
     pub address_mask: Ipv4Addr,
     /// A path to a file containing a list of users and their password hashes
     pub users_file: PathBuf,
+    /// Miscellaneous connection configuration
+    pub connection: ConnectionConfig,
+    /// Logging configuration
+    pub log: LogConfig,
 }
 
 /// Represents the configuration for a Quincy client.
@@ -131,46 +122,11 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
     }
 }
 
-impl ConfigInit<ServerConfig> for ServerConfig {
-    fn init(figment: Figment, env_prefix: &str) -> Result<Self> {
-        let mut config: ServerConfig = figment.extract()?;
-
-        let tunnel_configs: Vec<TunnelConfig> = match &config.tunnel_path {
-            Some(tunnel_path) => {
-                if tunnel_path.is_dir() {
-                    tunnel_path
-                        .read_dir()?
-                        .flatten()
-                        .filter_map(|config_file| {
-                            TunnelConfig::from_path(&config_file.path(), env_prefix).ok()
-                        })
-                        .collect()
-                } else {
-                    warn!("Failed to load tunnel configuration files from '{tunnel_path:?}' - the folder does not exist");
-                    vec![]
-                }
-            }
-            None => vec![],
-        };
-
-        for tunnel in tunnel_configs {
-            match config.tunnels.entry(tunnel.name.clone()) {
-                Entry::Occupied(_) => warn!("Tunnel with the name {} already exists", tunnel.name),
-                Entry::Vacant(slot) => {
-                    slot.insert(tunnel);
-                }
-            }
-        }
-
-        Ok(config)
-    }
-}
+impl ConfigInit<ServerConfig> for ServerConfig {}
 impl ConfigInit<ClientConfig> for ClientConfig {}
-impl ConfigInit<TunnelConfig> for TunnelConfig {}
 
 impl FromPath<ServerConfig> for ServerConfig {}
 impl FromPath<ClientConfig> for ClientConfig {}
-impl FromPath<TunnelConfig> for TunnelConfig {}
 
 fn default_log_level() -> String {
     "info".to_string()
@@ -249,7 +205,7 @@ impl ClientConfig {
     }
 }
 
-impl TunnelConfig {
+impl ServerConfig {
     /// Creates Quinn server configuration from this Quincy tunnel configuration.
     ///
     /// ### Arguments
@@ -257,10 +213,7 @@ impl TunnelConfig {
     ///
     /// ### Returns
     /// - `quinn::ServerConfig` - the Quinn server configuration
-    pub fn as_quinn_server_config(
-        &self,
-        connection_config: &ConnectionConfig,
-    ) -> Result<quinn::ServerConfig> {
+    pub fn as_quinn_server_config(&self) -> Result<quinn::ServerConfig> {
         let certificate_file_path = self.certificate_file.clone();
         let certificate_key_path = self.certificate_key_file.clone();
         let key = load_private_key_from_file(&certificate_key_path)?;
@@ -278,9 +231,9 @@ impl TunnelConfig {
         let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
         let mut transport_config = TransportConfig::default();
 
-        transport_config.max_idle_timeout(Some(connection_config.timeout.try_into()?));
-        transport_config.initial_mtu(connection_config.mtu_with_overhead());
-        transport_config.min_mtu(connection_config.mtu_with_overhead());
+        transport_config.max_idle_timeout(Some(self.connection.timeout.try_into()?));
+        transport_config.initial_mtu(self.connection.mtu_with_overhead());
+        transport_config.min_mtu(self.connection.mtu_with_overhead());
 
         quinn_config.transport_config(Arc::new(transport_config));
 

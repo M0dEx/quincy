@@ -36,6 +36,10 @@ pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
 
 pub trait Interface: InterfaceRead + InterfaceWrite {
     fn create(interface_address: IpNet, mtu: u16) -> Result<Self>;
+
+    fn split(self) -> (ReadHalf<Self>, WriteHalf<Self>) {
+        tokio::io::split(self)
+    }
 }
 
 impl<I: Interface> InterfaceRead for ReadHalf<I> {}

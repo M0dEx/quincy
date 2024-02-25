@@ -46,7 +46,7 @@ $ cargo build --release
 The resulting binaries can be found in the `target/debug` and `target/release` directories.
 
 ## Usage
-Quincy is split into 3 binaries: 
+Quincy is split into 3 binaries:
 - `client`: The VPN client
 - `server`: The VPN server
 - `users`: A utility binary meant for managing the `users` file
@@ -85,9 +85,7 @@ Any additional routes now have to be set up manually.
 ### Server
 The Quincy server requires a separate configuration file, an example of which can be found in `examples/server.toml`:
 ```toml
-# Section representing tunnel configuration
-[tunnels.tun0]
-# Name of the tunnel (currently not used as the name of the interface)
+# Name of the server instance (currently not used as the name of the interface)
 name = "tun0"
 # Path to the certificate used for TLS
 certificate_file = "examples/cert/server_cert.pem"
@@ -115,7 +113,7 @@ $ quincy-server --config-path examples/server.toml
 ```
 
 ### Users
-The users utility can be used to manage entries in the `users` file. 
+The users utility can be used to manage entries in the `users` file.
 The `users` file contains usernames and password hashes in the following format (`examples/users`):
 ```
 test:$argon2id$v=19$m=19456,t=2,p=1$S9rMLOcz/dnYN4cnyc/TJg$ES0p+DErLfcWoUJ2tvZlxZSSIGYNUEe0ZpKBDz7MOj0
@@ -128,9 +126,9 @@ $ quincy-users --add examples/users
 
 The prompts will look something like this:
 ```
-Enter the username: test 
-Enter password for user 'test': 
-Confirm password for user 'test': 
+Enter the username: test
+Enter password for user 'test':
+Confirm password for user 'test':
 ```
 
 A similar command can be used to remove users from the file:
@@ -140,7 +138,7 @@ $ quincy-users --remove examples/users
 
 The prompt will again look something like this:
 ```
-Enter the username: test 
+Enter the username: test
 ```
 
 ## Certificate management
@@ -168,7 +166,7 @@ $ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out <your_
 
 2) Generate a certificate request (you can fill out the fields with whatever information you want)
 ```
-$ openssl req -new -key <your_certificate_key_file> -out <your_certificate_request_file>       
+$ openssl req -new -key <your_certificate_key_file> -out <your_certificate_request_file>
 You are about to be asked to enter information that will be incorporated
 into your certificate request.
 What you are about to enter is what is called a Distinguished Name or a DN.

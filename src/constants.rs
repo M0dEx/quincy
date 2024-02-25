@@ -1,14 +1,10 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use quinn::Runtime;
 
 /// Represents the maximum MTU overhead for QUIC, since the QUIC header is variable in size.
 pub const QUIC_MTU_OVERHEAD: u16 = 50;
-
-/// Represents the interval used by various cleanup tasks.
-pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Error message when authentication fails.
 pub const AUTH_FAILED_MESSAGE: &str = "Authentication failed";
