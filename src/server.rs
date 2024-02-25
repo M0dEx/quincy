@@ -121,7 +121,7 @@ impl QuincyServer {
                     );
 
                     authentication_tasks.push(
-                        connection.authenticate(&self.user_database, &self.address_pool, self.config.connection.timeout)
+                        connection.authenticate(&self.user_database, &self.address_pool, self.config.connection.connection_timeout)
                     );
                 }
 

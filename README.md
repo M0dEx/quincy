@@ -22,106 +22,63 @@ When all is set up, a connection task is spawned, which handles IO on the TUN in
 The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an efficient and scalable implementation.
 
 ## Supported platforms
-- [X] Windows (using [Wintun](https://www.wintun.net/))
-- [X] Linux
-- [X] MacOS
+- [X] Windows (x86_64), using [Wintun](https://www.wintun.net/)
+- [X] Linux (x86_64, aarch64)
+- [X] MacOS (aarch64)
 
 ## Installation
-Binaries are currently available for Windows and Linux (x86_64) under every release.
+Binaries are currently available for Windows, Linux (x86_64) and macOS (aarch64) for every official release.
 
 Using cargo, installation of any published version can be done with a simple command:
 ```bash
-$ cargo install quincy
+cargo install quincy
 ```
 
 ## Building from sources
 As Quincy does not rely upon any non-Rust libraries, the build process is incredibly simple:
 ```bash
-$ cargo build
+cargo build
 ```
 If you additionally want to build Quincy in release mode with optimizations, add the `--release` switch:
 ```bash
-$ cargo build --release
+cargo build --release
 ```
 The resulting binaries can be found in the `target/debug` and `target/release` directories.
 
 ## Usage
 Quincy is split into 3 binaries:
-- `client`: The VPN client
-- `server`: The VPN server
-- `users`: A utility binary meant for managing the `users` file
+- `quincy-client`: The VPN client
+- `quincy-server`: The VPN server
+- `quincy-users`: A utility binary meant for managing the `users` file
 
 ### Client
-The Quincy client requires a separate configuration file, an example of which can be found in `examples/client.toml`:
-```toml
-# The address and port the Quincy server is available at
-connection_string = "quincy:55555"
-
-[authentication]
-# The username used for authentication
-username = "test"
-# The password used for authentication
-password = "test"
-# A list of trusted certificates the server can use or have its certificate signed by
-trusted_certificates = ["examples/cert/ca_cert.pem"]
-
-[connection]
-# The MTU used by the QUIC tunnel and the spawned TUN interface
-mtu = 1400
-
-[log]
-# The log level
-level = "info"
-```
+The Quincy client requires a separate configuration file, an example of which can be found in [`examples/client.toml`](examples/client.toml).
+The documentation for the client configuration file fields can be found [here](https://docs.rs/quincy/latest/quincy/config/struct.ClientConfig.html).
 
 With the configuration file in place, the client can be started using the following command:
 ```bash
-$ quincy-client --config-path examples/client.toml
+quincy-client --config-path examples/client.toml
 ```
 
 Routes are set by default to the address and netmask received from the server.
 Any additional routes now have to be set up manually.
 
 ### Server
-The Quincy server requires a separate configuration file, an example of which can be found in `examples/server.toml`:
-```toml
-# Name of the server instance (currently not used as the name of the interface)
-name = "tun0"
-# Path to the certificate used for TLS
-certificate_file = "examples/cert/server_cert.pem"
-# Path to the certificate key used for TLS
-certificate_key_file = "examples/cert/server_key.pem"
-# The address of the tunnel endpoint and base address of the address pool available to clients
-address_tunnel = "10.0.0.1"
-# Netmask used to generate the address pool available to clients
-address_mask = "255.255.255.0"
-# Path to the file containing user credentials
-users_file = "examples/users"
-
-[connection]
-# The MTU used by the QUIC tunnel and the spawned TUN interface
-mtu = 1400
-
-[log]
-# The log level
-level = "info"
-```
+The Quincy server requires a separate configuration file, an example of which can be found in [`examples/server.toml`](examples/server.toml).
+The documentation for the server configuration file fields can be found [here](https://docs.rs/quincy/latest/quincy/config/struct.ServerConfig.html).
 
 With the configuration file in place, the client can be started using the following command:
 ```bash
-$ quincy-server --config-path examples/server.toml
+quincy-server --config-path examples/server.toml
 ```
 
 ### Users
 The users utility can be used to manage entries in the `users` file.
-The `users` file contains usernames and password hashes in the following format (`examples/users`):
-```
-test:$argon2id$v=19$m=19456,t=2,p=1$S9rMLOcz/dnYN4cnyc/TJg$ES0p+DErLfcWoUJ2tvZlxZSSIGYNUEe0ZpKBDz7MOj0
-```
+The `users` file contains usernames and password hashes in a format similar to `/etc/shadow` (example can be found in [`examples/users`](examples/users)).
 
 The following command can be used to add users to this file:
 ```bash
-$ quincy-users --add examples/users
+quincy-users --add examples/users
 ```
 
 The prompts will look something like this:
@@ -133,7 +90,7 @@ Confirm password for user 'test':
 
 A similar command can be used to remove users from the file:
 ```bash
-$ quincy-users --remove examples/users
+quincy-users --remove examples/users
 ```
 
 The prompt will again look something like this:
@@ -161,12 +118,14 @@ This is an easier set up that might be used by home-lab administrators or for lo
 The steps to generate a self-signed certificate that can be used with Quincy:
 1) Generate a private key (I use ECC for my certificates, but RSA is fine)
 ```
-$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out <your_certificate_key_file>
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out <your_certificate_key_file>
 ```
 
-2) Generate a certificate request (you can fill out the fields with whatever information you want)
+2) Generate a certificate request
+```bash
+openssl req -new -key <your_certificate_key_file> -out <your_certificate_request_file>
 ```
-$ openssl req -new -key <your_certificate_key_file> -out <your_certificate_request_file>
+```
 You are about to be asked to enter information that will be incorporated
 into your certificate request.
 What you are about to enter is what is called a Distinguished Name or a DN.
@@ -199,26 +158,23 @@ issuerAltName          = issuer:copy
 ```
 
 4) Sign your certificate
-```
-$ openssl x509 -req -in cert.csr -signkey <your_certificate_key_file> -out <your_certificate_file> -days 365 -sha256 -extfile <your_v3_ext_file>
+```bash
+openssl x509 -req -in cert.csr -signkey <your_certificate_key_file> -out <your_certificate_file> -days 365 -sha256 -extfile <your_v3_ext_file>
 ```
 
-You then have to add the certificate to both you server and your client configuration files.
+5) Add the certificate to both your server and client configuration files.
 
-### Configuration reference
 **Server**
 ```toml
-[tunnels.<tunnel_name>]
 # Path to the certificate used for TLS
 certificate_file = "server_cert.pem"
 # Path to the certificate key used for TLS
 certificate_key_file = "server_key.pem"
 ```
 
-
 **Client**
 ```toml
 [authentication]
 # A list of trusted certificates the server can use or have its certificate signed by
-trusted_certificates = ["ca_cert.pem"]
+trusted_certificates = ["server_cert.pem"]
 ```
