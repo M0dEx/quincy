@@ -114,6 +114,12 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
     /// - `path` - a path to the configuration file
     /// - `env_prefix` - the ENV prefix to use for overrides
     fn from_path(path: &Path, env_prefix: &str) -> Result<T> {
+        if !path.exists() {
+            return Err(anyhow::anyhow!(
+                "configuration file {path:?} does not exist or cannot be read"
+            ));
+        }
+
         let figment = Figment::new()
             .merge(Toml::file(path))
             .merge(Env::prefixed(env_prefix));
