@@ -1,4 +1,3 @@
-[tunnels.tun0]
 name = "tun0"
 certificate_file = "tests/static/cert.pem"
 certificate_key_file = "tests/static/key.pem"

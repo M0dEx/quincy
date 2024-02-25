@@ -1,10 +1,12 @@
 use crate::auth::client::AuthClient;
 
 use crate::config::ClientConfig;
-use crate::constants::{PACKET_BUFFER_SIZE, QUINN_RUNTIME};
+use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
+use crate::utils::signal_handler::handle_ctrl_c;
 use crate::utils::socket::bind_socket;
+use crate::utils::tasks::abort_all;
 use anyhow::{anyhow, Result};
-use quinn::{Connection, Endpoint};
+use quinn::{Connection, Endpoint, VarInt};
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
@@ -13,12 +15,12 @@ use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::{debug, info};
 
 /// Represents a Quincy client that connects to a server and relays packets between the server and a TUN interface.
 pub struct QuincyClient {
-    client_config: ClientConfig,
+    config: ClientConfig,
 }
 
 impl QuincyClient {
@@ -26,29 +28,25 @@ impl QuincyClient {
     ///
     /// ### Arguments
     /// - `client_config` - the configuration for the client
-    pub fn new(client_config: ClientConfig) -> Self {
-        Self { client_config }
+    pub fn new(config: ClientConfig) -> Self {
+        Self { config }
     }
 
     /// Connects to the Quincy server and starts the workers for this instance of the Quincy client.
     pub async fn run<I: Interface>(&self) -> Result<()> {
         let connection = self.connect_to_server().await?;
-        let mut auth_client =
-            AuthClient::new(&connection, &self.client_config.authentication).await?;
+        let mut auth_client = AuthClient::new(&connection, &self.config.authentication).await?;
 
         let assigned_address = auth_client.authenticate().await?;
 
         info!("Successfully authenticated");
         info!("Received client address: {assigned_address}");
 
-        let interface = I::create(assigned_address, self.client_config.connection.mtu)?;
+        let mtu = self.config.connection.mtu;
+        let interface = I::create(assigned_address, mtu)?;
 
-        self.relay_packets(
-            connection,
-            interface,
-            self.client_config.connection.mtu as usize,
-        )
-        .await
+        self.relay_packets(connection, interface, mtu as usize)
+            .await
     }
 
     /// Connects to the Quincy server.
@@ -56,43 +54,40 @@ impl QuincyClient {
     /// ### Returns
     /// - `Connection` - a Quinn connection representing the connection to the Quincy server
     async fn connect_to_server(&self) -> Result<Connection> {
-        let quinn_config = self.client_config.as_quinn_client_config()?;
+        let quinn_config = self.config.as_quinn_client_config()?;
 
         let server_hostname = self
-            .client_config
+            .config
             .connection_string
             .split(':')
             .next()
             .ok_or_else(|| {
                 anyhow!(
                     "Could not parse hostname from connection string '{}'",
-                    self.client_config.connection_string
+                    self.config.connection_string
                 )
             })?;
 
         let server_addr = self
-            .client_config
+            .config
             .connection_string
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| {
                 anyhow!(
                     "Connection string '{}' is invalid",
-                    self.client_config.connection_string
+                    self.config.connection_string
                 )
             })?;
 
-        info!("Connecting: {}", self.client_config.connection_string);
+        info!("Connecting: {}", self.config.connection_string);
 
         let endpoint = self.create_quinn_endpoint(server_addr)?;
         let connection = endpoint
             .connect_with(quinn_config, server_addr, server_hostname)?
             .await?;
 
-        info!(
-            "Connection established: {}",
-            self.client_config.connection_string
-        );
+        info!("Connection established: {}", self.config.connection_string);
 
         Ok(connection)
     }
@@ -113,21 +108,22 @@ impl QuincyClient {
 
         let socket = bind_socket(
             bind_addr,
-            self.client_config.connection.send_buffer_size as usize,
-            self.client_config.connection.recv_buffer_size as usize,
+            self.config.connection.send_buffer_size as usize,
+            self.config.connection.recv_buffer_size as usize,
         )?;
 
-        let endpoint_config = self.client_config.connection.as_endpoint_config()?;
+        let endpoint_config = self.config.connection.as_endpoint_config()?;
         let endpoint = Endpoint::new(endpoint_config, None, socket, QUINN_RUNTIME.clone())?;
 
         Ok(endpoint)
     }
 
-    /// Relays packets between the TUN interface and the Quincy server.
+    /// Relays packets between the TUN interface and the Quincy clients.
     ///
     /// ### Arguments
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
     /// - `interface` - the TUN interface
+    /// - `interface_mtu` - the MTU of the TUN interface
     async fn relay_packets(
         &self,
         connection: Connection,
@@ -135,29 +131,39 @@ impl QuincyClient {
         interface_mtu: usize,
     ) -> Result<()> {
         let connection = Arc::new(connection);
-        let (tun_queue_send, tun_queue_recv) = unbounded_channel();
-        let (tun_read, tun_write) = tokio::io::split(interface);
+        let (tun_queue_send, tun_queue_recv) = channel(PACKET_CHANNEL_SIZE);
+        let (tun_read, tun_write) = interface.split();
 
-        let mut client_tasks = FuturesUnordered::new();
+        let mut tasks = FuturesUnordered::new();
 
-        client_tasks.push(tokio::spawn(Self::process_inbound_traffic(
-            connection.clone(),
-            tun_queue_send,
-        )));
-        client_tasks.push(tokio::spawn(Self::process_tun_queue(
-            tun_queue_recv,
-            tun_write,
-        )));
-        client_tasks.push(tokio::spawn(Self::process_outgoing_traffic(
-            connection.clone(),
-            tun_read,
-            interface_mtu,
-        )));
+        tasks.extend([
+            tokio::spawn(Self::process_inbound_traffic(
+                connection.clone(),
+                tun_queue_send,
+            )),
+            tokio::spawn(Self::process_tun_queue(tun_queue_recv, tun_write)),
+            tokio::spawn(Self::process_outgoing_traffic(
+                connection.clone(),
+                tun_read,
+                interface_mtu,
+            )),
+        ]);
 
-        client_tasks
-            .next()
-            .await
-            .expect("Client tasks are not empty")?
+        let result = tokio::select! {
+            Some(task_result) = tasks.next() => task_result?,
+            signal_res = handle_ctrl_c() => {
+                info!("Received shutdown signal, shutting down");
+                signal_res
+            },
+        };
+
+        // Stop all running tasks
+        let _ = abort_all(tasks).await;
+
+        // Close the QUIC connection
+        connection.close(VarInt::from_u32(0x01), "Client shutdown".as_bytes());
+
+        result
     }
 
     /// Handles incoming packets from the TUN interface and relays them to the Quincy server.
@@ -186,8 +192,13 @@ impl QuincyClient {
         }
     }
 
+    /// Handles incoming packets from the Quincy clients and relays them to the TUN interface.
+    ///
+    /// ### Arguments
+    /// - `tun_queue` - the TUN queue
+    /// - `tun_write` - the write half of the TUN interface
     async fn process_tun_queue(
-        mut tun_queue: UnboundedReceiver<Bytes>,
+        mut tun_queue: Receiver<Bytes>,
         mut tun_write: impl InterfaceWrite,
     ) -> Result<()> {
         debug!("Started TUN queue task (interface -> QUIC tunnel)");
@@ -202,14 +213,14 @@ impl QuincyClient {
         }
     }
 
-    /// Handles incoming packets from the Quincy server and relays them to the TUN interface.
+    /// Handles incoming packets from the Quincy server and relays them to the TUN interface queue.
     ///
     /// ### Arguments
     /// - `connection` - a Quinn connection representing the connection to the Quincy server
-    /// - `write_interface` - the write half of the TUN interface
+    /// - `tun_queue` - the TUN queue
     async fn process_inbound_traffic(
         connection: Arc<Connection>,
-        tun_queue: UnboundedSender<Bytes>,
+        tun_queue: Sender<Bytes>,
     ) -> Result<()> {
         debug!("Started inbound traffic task (QUIC tunnel -> interface)");
 
@@ -222,7 +233,7 @@ impl QuincyClient {
                 connection.remote_address()
             );
 
-            tun_queue.send(data)?;
+            tun_queue.send(data).await?;
         }
     }
 }

@@ -1,14 +1,10 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use quinn::Runtime;
 
 /// Represents the maximum MTU overhead for QUIC, since the QUIC header is variable in size.
 pub const QUIC_MTU_OVERHEAD: u16 = 50;
-
-/// Represents the interval used by various cleanup tasks.
-pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Error message when authentication fails.
 pub const AUTH_FAILED_MESSAGE: &str = "Authentication failed";
@@ -21,6 +17,9 @@ pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
 
 /// Packet buffer size for operations on the TUN interface.
 pub const PACKET_BUFFER_SIZE: usize = 4;
+
+/// Packet channel size used for communication between the TUN interface and QUIC tunnels.
+pub const PACKET_CHANNEL_SIZE: usize = 1024 * 1024;
 
 /// Represents the supported TLS cipher suites for Quincy.
 pub static QUINCY_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[

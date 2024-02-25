@@ -1,14 +1,16 @@
-use crate::auth::server::AuthServer;
 use crate::auth::user::UserDatabase;
+use crate::{auth::server::AuthServer, utils::tasks::abort_all};
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use ipnet::IpNet;
 
 use crate::server::address_pool::AddressPool;
 use quinn::Connection;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, info};
 
 /// Represents a Quincy connection encapsulating authentication and IO.
@@ -17,7 +19,7 @@ pub struct QuincyConnection {
     connection: Arc<Connection>,
     username: Option<String>,
     client_address: Option<IpNet>,
-    ingress_queue: UnboundedSender<Bytes>,
+    ingress_queue: Sender<Bytes>,
 }
 
 impl QuincyConnection {
@@ -26,7 +28,7 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - the underlying QUIC connection
     /// - `tun_queue` - the queue to send data to the TUN interface
-    pub fn new(connection: Connection, tun_queue: UnboundedSender<Bytes>) -> Self {
+    pub fn new(connection: Connection, tun_queue: Sender<Bytes>) -> Self {
         Self {
             connection: Arc::new(connection),
             username: None,
@@ -65,7 +67,7 @@ impl QuincyConnection {
     }
 
     /// Starts the tasks for this instance of Quincy connection.
-    pub async fn run(self, egress_queue: UnboundedReceiver<Bytes>) -> (Self, Error) {
+    pub async fn run(self, egress_queue: Receiver<Bytes>) -> (Self, Error) {
         if self.username.is_none() {
             let client_address = self.connection.remote_address();
             return (
@@ -74,20 +76,27 @@ impl QuincyConnection {
             );
         }
 
-        let connection = Arc::new(self.clone());
+        let connection = Arc::new(self);
 
-        let outgoing_data_task =
-            tokio::spawn(connection.clone().process_outgoing_data(egress_queue));
-        let incoming_data_task = tokio::spawn(connection.clone().process_incoming_data());
+        let mut tasks = FuturesUnordered::new();
 
-        let err = tokio::select! {
-            outgoing_data_err = outgoing_data_task => outgoing_data_err,
-            incoming_data_err = incoming_data_task => incoming_data_err,
-        }
-        .expect("joining tasks never fails")
-        .expect_err("connection tasks always return an error");
+        tasks.extend([
+            tokio::spawn(connection.clone().process_outgoing_data(egress_queue)),
+            tokio::spawn(connection.clone().process_incoming_data()),
+        ]);
 
-        (self, err)
+        let res = tasks
+            .next()
+            .await
+            .expect("tasks is not empty")
+            .expect("task is joinable");
+
+        let _ = abort_all(tasks).await;
+
+        (
+            Arc::into_inner(connection).expect("there is exactly one Arc instance at this point"),
+            res.expect_err("task failed"),
+        )
     }
 
     /// Processes outgoing data and sends it to the QUIC connection.
@@ -96,7 +105,7 @@ impl QuincyConnection {
     /// - `egress_queue` - the queue to receive data from the TUN interface
     async fn process_outgoing_data(
         self: Arc<Self>,
-        mut egress_queue: UnboundedReceiver<Bytes>,
+        mut egress_queue: Receiver<Bytes>,
     ) -> Result<()> {
         loop {
             let data = egress_queue
@@ -125,11 +134,12 @@ impl QuincyConnection {
                 self.client_address()?.addr()
             );
 
-            self.ingress_queue.send(data)?;
+            self.ingress_queue.send(data).await?;
         }
     }
 
     /// Returns the username associated with this connection.
+    #[allow(dead_code)]
     pub fn username(&self) -> Result<&str> {
         self.username
             .as_deref()
