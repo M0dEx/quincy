@@ -37,12 +37,22 @@ pub struct ServerConfig {
     pub address_tunnel: Ipv4Addr,
     /// The address mask for this tunnel
     pub address_mask: Ipv4Addr,
-    /// A path to a file containing a list of users and their password hashes
-    pub users_file: PathBuf,
+    /// Authentication configuration
+    pub authentication: ServerAuthenticationConfig,
     /// Miscellaneous connection configuration
     pub connection: ConnectionConfig,
     /// Logging configuration
     pub log: LogConfig,
+}
+
+/// Represents the configuration for a Quincy server's authentication.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ServerAuthenticationConfig {
+    /// The type of authenticator to use
+    #[serde(default = "default_auth_type")]
+    pub auth_type: AuthType,
+    /// The path to the file containing the list of users and their password hashes
+    pub users_file: PathBuf,
 }
 
 /// Represents the configuration for a Quincy client.
@@ -61,6 +71,9 @@ pub struct ClientConfig {
 /// Represents the configuration for a Quincy client's authentication.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientAuthenticationConfig {
+    /// The type of authenticator to use
+    #[serde(default = "default_auth_type")]
+    pub auth_type: AuthType,
     /// The username to use for authentication
     pub username: String,
     /// The password to use for authentication
@@ -95,6 +108,11 @@ pub struct LogConfig {
     /// The log level to use
     #[serde(default = "default_log_level")]
     pub level: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub enum AuthType {
+    UsersFile,
 }
 
 pub trait ConfigInit<T: DeserializeOwned> {
@@ -160,6 +178,10 @@ fn default_timeout() -> Duration {
 
 fn default_keep_alive_interval() -> Duration {
     Duration::from_secs(25)
+}
+
+fn default_auth_type() -> AuthType {
+    AuthType::UsersFile
 }
 
 impl ClientConfig {
