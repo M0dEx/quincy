@@ -8,6 +8,8 @@ certificate_key_file = "examples/cert/server_key.pem"
 address_tunnel = "10.0.0.1"
 # Netmask used to generate the address pool available to clients
 address_mask = "255.255.255.0"
+
+[authentication]
 # Path to the file containing user credentials
 users_file = "examples/users"
 

@@ -35,9 +35,12 @@ impl QuincyClient {
     /// Connects to the Quincy server and starts the workers for this instance of the Quincy client.
     pub async fn run<I: Interface>(&self) -> Result<()> {
         let connection = self.connect_to_server().await?;
-        let mut auth_client = AuthClient::new(&connection, &self.config.authentication).await?;
+        let auth_client = AuthClient::new(
+            &self.config.authentication,
+            self.config.connection.connection_timeout,
+        )?;
 
-        let assigned_address = auth_client.authenticate().await?;
+        let assigned_address = auth_client.authenticate(&connection).await?;
 
         info!("Successfully authenticated");
         info!("Received client address: {assigned_address}");

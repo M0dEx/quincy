@@ -1,13 +1,22 @@
+use std::path::PathBuf;
 use std::process::exit;
 
 use anyhow::Result;
 use clap::Parser;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, FromPath};
-use quincy::utils::cli::Args;
 use quincy::utils::tracing::log_subscriber;
 use tracing::error;
 use tun2::AsyncDevice;
+
+#[derive(Parser)]
+#[command(name = "quincy")]
+pub struct Args {
+    #[arg(long)]
+    pub config_path: PathBuf,
+    #[arg(long, default_value = "QUINCY_")]
+    pub env_prefix: String,
+}
 
 #[tokio::main]
 async fn main() {

@@ -4,7 +4,7 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use clap::Parser;
 use dashmap::DashMap;
-use quincy::auth::user::{load_users_file, save_users_file, User};
+use quincy::auth::users_file::{load_users_file, save_users_file, User};
 use rpassword::prompt_password;
 use std::io::Write;
 use std::path::PathBuf;

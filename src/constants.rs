@@ -6,12 +6,6 @@ use quinn::Runtime;
 /// Represents the maximum MTU overhead for QUIC, since the QUIC header is variable in size.
 pub const QUIC_MTU_OVERHEAD: u16 = 50;
 
-/// Error message when authentication fails.
-pub const AUTH_FAILED_MESSAGE: &str = "Authentication failed";
-
-/// Error message when authentication times out.
-pub const AUTH_TIMEOUT_MESSAGE: &str = "Authentication timed out";
-
 /// Buffer size for authentication messages.
 pub const AUTH_MESSAGE_BUFFER_SIZE: usize = 1024;
 
