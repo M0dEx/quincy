@@ -108,12 +108,20 @@ impl QuincyServer {
             tokio::select! {
                 // New connections
                 Some(handshake) = endpoint.accept() => {
+                    let client_ip = handshake.remote_address().ip();
+
                     debug!(
                         "Received incoming connection from '{}'",
-                        handshake.remote_address().ip()
+                        client_ip
                     );
 
-                    let quic_connection = handshake.await?;
+                    let quic_connection = match handshake.await {
+                        Ok(connection) => connection,
+                        Err(e) => {
+                            warn!("Connection handshake with client '{client_ip}' failed: {e}");
+                            continue;
+                        }
+                    };
 
                     let connection = QuincyConnection::new(
                         quic_connection,
