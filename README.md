@@ -9,10 +9,10 @@
 Quincy is a VPN client and server implementation using the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol.
 
 ## Design
-Quincy uses the QUIC protocol implemented by [`quinn`](https://github.com/quinn-rs/quinn) to create an encrypted tunnnel between clients and the server.
+Quincy uses the QUIC protocol implemented by [`quinn`](https://github.com/quinn-rs/quinn) to create an encrypted tunnel between clients and the server.
 
 This tunnel serves two purposes:
-- authentication using a reliable bidirectional stream
+- authentication using a reliable bi-directional stream
 - data transfer using unreliable datagrams (for lower latency and avoidance of multiple reliability layers)
 
 After a connection is established and the client is authenticated, a TUN interface is spawned using an IP address provided by the server.
@@ -71,6 +71,10 @@ With the configuration file in place, the client can be started using the follow
 ```bash
 quincy-server --config-path examples/server.toml
 ```
+
+**Please keep in mind that the pre-generated certificate in [`examples/cert/server_cert.pem`](examples/cert/server_cert.pem)
+is self-signed and uses the hostname `quincy`. It should be replaced with a proper certificate, 
+which can be generated using the instructions in the [Certificate management](#certificate-management) section.**
 
 ### Users
 The users utility can be used to manage entries in the `users` file.
