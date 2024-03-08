@@ -1,4 +1,3 @@
-use crate::auth::user::UserDatabase;
 use crate::{auth::server::AuthServer, utils::tasks::abort_all};
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
@@ -6,17 +5,14 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use ipnet::IpNet;
 
-use crate::server::address_pool::AddressPool;
 use quinn::Connection;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, info};
+use tracing::info;
 
 /// Represents a Quincy connection encapsulating authentication and IO.
 #[derive(Clone)]
 pub struct QuincyConnection {
-    connection: Arc<Connection>,
+    connection: Connection,
     username: Option<String>,
     client_address: Option<IpNet>,
     ingress_queue: Sender<Bytes>,
@@ -30,7 +26,7 @@ impl QuincyConnection {
     /// - `tun_queue` - the queue to send data to the TUN interface
     pub fn new(connection: Connection, tun_queue: Sender<Bytes>) -> Self {
         Self {
-            connection: Arc::new(connection),
+            connection,
             username: None,
             client_address: None,
             ingress_queue: tun_queue,
@@ -38,20 +34,9 @@ impl QuincyConnection {
     }
 
     /// Attempts to authenticate the client.
-    pub async fn authenticate(
-        mut self,
-        user_database: &UserDatabase,
-        address_pool: &AddressPool,
-        connection_timeout: Duration,
-    ) -> Result<Self> {
-        let auth_server = AuthServer::new(
-            user_database,
-            address_pool,
-            self.connection.clone(),
-            connection_timeout,
-        );
-
-        let (username, client_address) = auth_server.handle_authentication().await?;
+    pub async fn authenticate(mut self, auth_server: &AuthServer) -> Result<Self> {
+        let (username, client_address) =
+            auth_server.handle_authentication(&self.connection).await?;
 
         info!(
             "Connection established: user = {}, client address = {}, remote address = {}",
@@ -76,13 +61,17 @@ impl QuincyConnection {
             );
         }
 
-        let connection = Arc::new(self);
-
         let mut tasks = FuturesUnordered::new();
 
         tasks.extend([
-            tokio::spawn(connection.clone().process_outgoing_data(egress_queue)),
-            tokio::spawn(connection.clone().process_incoming_data()),
+            tokio::spawn(Self::process_outgoing_data(
+                self.connection.clone(),
+                egress_queue,
+            )),
+            tokio::spawn(Self::process_incoming_data(
+                self.connection.clone(),
+                self.ingress_queue.clone(),
+            )),
         ]);
 
         let res = tasks
@@ -93,10 +82,7 @@ impl QuincyConnection {
 
         let _ = abort_all(tasks).await;
 
-        (
-            Arc::into_inner(connection).expect("there is exactly one Arc instance at this point"),
-            res.expect_err("task failed"),
-        )
+        (self, res.expect_err("task failed"))
     }
 
     /// Processes outgoing data and sends it to the QUIC connection.
@@ -104,7 +90,7 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `egress_queue` - the queue to receive data from the TUN interface
     async fn process_outgoing_data(
-        self: Arc<Self>,
+        connection: Connection,
         mut egress_queue: Receiver<Bytes>,
     ) -> Result<()> {
         loop {
@@ -113,28 +99,19 @@ impl QuincyConnection {
                 .await
                 .ok_or(anyhow!("Egress queue has been closed"))?;
 
-            debug!(
-                "Sending {} bytes to {:?}",
-                data.len(),
-                self.client_address()?.addr()
-            );
-
-            self.connection.send_datagram(data)?;
+            connection.send_datagram(data)?;
         }
     }
 
     /// Processes incoming data and sends it to the TUN interface queue.
-    async fn process_incoming_data(self: Arc<Self>) -> Result<()> {
+    async fn process_incoming_data(
+        connection: Connection,
+        ingress_queue: Sender<Bytes>,
+    ) -> Result<()> {
         loop {
-            let data = self.connection.read_datagram().await?;
+            let data = connection.read_datagram().await?;
 
-            debug!(
-                "Received {} bytes from {:?}",
-                data.len(),
-                self.client_address()?.addr()
-            );
-
-            self.ingress_queue.send(data).await?;
+            ingress_queue.send(data).await?;
         }
     }
 

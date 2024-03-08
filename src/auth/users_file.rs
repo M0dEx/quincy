@@ -4,14 +4,98 @@ use std::{
     path::Path,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use async_trait::async_trait;
 use dashmap::DashMap;
+use ipnet::IpNet;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-/// Represents a Quincy user
+use crate::{
+    config::{ClientAuthenticationConfig, ServerAuthenticationConfig},
+    server::address_pool::AddressPool,
+};
+
+use super::{ClientAuthenticator, ServerAuthenticator};
+
+pub struct UsersFileServerAuthenticator {
+    user_database: UserDatabase,
+}
+
+pub struct UsersFileClientAuthenticator {
+    username: String,
+    password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UsersFilePayload {
+    username: String,
+    password: String,
+}
+
+/// Represents a user database
+pub struct UserDatabase {
+    users: DashMap<String, User>,
+    hasher: Argon2<'static>,
+}
+
 pub struct User {
     pub username: String,
     pub password_hash: String,
+}
+
+impl UsersFileServerAuthenticator {
+    pub fn new(config: &ServerAuthenticationConfig) -> Result<Self> {
+        let users_file = load_users_file(&config.users_file)?;
+        let user_database = UserDatabase::new(users_file);
+
+        Ok(Self { user_database })
+    }
+}
+
+impl UsersFileClientAuthenticator {
+    pub fn new(config: &ClientAuthenticationConfig) -> Self {
+        Self {
+            username: config.username.clone(),
+            password: config.password.clone(),
+        }
+    }
+}
+
+#[async_trait]
+impl ServerAuthenticator for UsersFileServerAuthenticator {
+    async fn authenticate_user(
+        &self,
+        address_pool: &AddressPool,
+        authentication_payload: Value,
+    ) -> anyhow::Result<(String, IpNet)> {
+        let payload: UsersFilePayload = serde_json::from_value(authentication_payload)
+            .context("failed to parse UsersFilePayload")?;
+
+        self.user_database
+            .authenticate(&payload.username, payload.password)
+            .await?;
+
+        Ok((
+            payload.username,
+            address_pool
+                .next_available_address()
+                .ok_or(anyhow!("no available address"))?,
+        ))
+    }
+}
+
+#[async_trait]
+impl ClientAuthenticator for UsersFileClientAuthenticator {
+    async fn generate_payload(&self) -> Result<Value> {
+        let payload = UsersFilePayload {
+            username: self.username.clone(),
+            password: self.password.clone(),
+        };
+
+        Ok(serde_json::to_value(payload)?)
+    }
 }
 
 impl User {
@@ -44,12 +128,6 @@ impl TryFrom<String> for User {
 
         Ok(User::new(name, password_hash_string))
     }
-}
-
-/// Represents a user database
-pub struct UserDatabase {
-    users: DashMap<String, User>,
-    hasher: Argon2<'static>,
 }
 
 impl UserDatabase {
@@ -132,11 +210,12 @@ pub fn save_users_file(users_file: &Path, users: DashMap<String, User>) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::user::{User, UserDatabase};
     use argon2::password_hash::rand_core::OsRng;
     use argon2::password_hash::SaltString;
     use argon2::{Argon2, PasswordHasher};
     use dashmap::DashMap;
+
+    use crate::auth::users_file::{User, UserDatabase};
 
     #[tokio::test]
     async fn test_authentication() {

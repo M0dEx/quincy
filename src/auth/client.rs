@@ -1,77 +1,61 @@
-use anyhow::{anyhow, Context, Result};
-use bytes::BytesMut;
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
 use ipnet::IpNet;
-use quinn::{Connection, RecvStream, SendStream};
-use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
+use quinn::Connection;
 
-use crate::config::ClientAuthenticationConfig;
+use crate::config::{AuthType, ClientAuthenticationConfig};
 
-use super::server::AuthServerMessage;
-
-/// Represents an authentication message sent by the client.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AuthClientMessage {
-    Authentication(String, String),
-}
+use super::{
+    stream::{AuthMessage, AuthStreamBuilder, AuthStreamMode},
+    users_file::UsersFileClientAuthenticator,
+    ClientAuthenticator,
+};
 
 /// Represents an authentication client handling initial authentication and session management.
 pub struct AuthClient {
-    send_stream: SendStream,
-    recv_stream: RecvStream,
-    username: String,
-    password: String,
+    authenticator: Box<dyn ClientAuthenticator>,
+    auth_timeout: Duration,
 }
 
 impl AuthClient {
-    pub async fn new(
-        connection: &Connection,
+    pub fn new(
         authentication_config: &ClientAuthenticationConfig,
+        auth_timeout: Duration,
     ) -> Result<Self> {
-        let (send, recv) = connection.open_bi().await?;
+        let authenticator = match authentication_config.auth_type {
+            AuthType::UsersFile => UsersFileClientAuthenticator::new(authentication_config),
+        };
 
         Ok(Self {
-            send_stream: send,
-            recv_stream: recv,
-            username: authentication_config.username.clone(),
-            password: authentication_config.password.clone(),
+            authenticator: Box::new(authenticator),
+            auth_timeout,
         })
     }
 
     /// Establishes a session with the server.
     ///
+    /// ### Arguments
+    /// - `connection` - The connection to the server
+    ///
     /// ### Returns
     /// - `IpNet` - the tunnel address received from the server
-    pub async fn authenticate(&mut self) -> Result<IpNet> {
-        let basic_auth =
-            AuthClientMessage::Authentication(self.username.clone(), self.password.clone());
+    pub async fn authenticate(&self, connection: &Connection) -> Result<IpNet> {
+        let auth_stream_builder = AuthStreamBuilder::new(AuthStreamMode::Client);
+        let mut auth_stream = auth_stream_builder
+            .connect(connection, self.auth_timeout)
+            .await?;
 
-        self.send_message(basic_auth).await?;
-        let auth_response = self.recv_message().await?;
+        let authentication_payload = self.authenticator.generate_payload().await?;
+        auth_stream
+            .send_message(AuthMessage::Authenticate(authentication_payload))
+            .await?;
+
+        let auth_response = auth_stream.recv_message().await?;
 
         match auth_response {
-            Some(AuthServerMessage::Authenticated(addr, netmask)) => {
-                let address = IpNet::with_netmask(addr, netmask)?;
-
-                Ok(address)
-            }
-            _ => Err(anyhow!("Authentication failed")),
+            AuthMessage::Authenticated(addr, netmask) => Ok(IpNet::with_netmask(addr, netmask)?),
+            _ => Err(anyhow!("authentication failed")),
         }
-    }
-
-    #[inline]
-    async fn send_message(&mut self, message: AuthClientMessage) -> Result<()> {
-        self.send_stream
-            .write_all(&serde_json::to_vec(&message)?)
-            .await
-            .context("Failed to send AuthServerMessage")
-    }
-
-    #[inline]
-    async fn recv_message(&mut self) -> Result<Option<AuthServerMessage>> {
-        let mut buf = BytesMut::with_capacity(1024);
-        self.recv_stream.read_buf(&mut buf).await?;
-
-        serde_json::from_slice(&buf).context("Failed to parse AuthClientMessage")
     }
 }

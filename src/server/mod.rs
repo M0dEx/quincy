@@ -4,12 +4,12 @@ mod connection;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use crate::auth::user::{load_users_file, UserDatabase};
+use crate::auth::server::AuthServer;
 use crate::config::ServerConfig;
 use crate::server::connection::QuincyConnection;
 use crate::utils::signal_handler::handle_ctrl_c;
 use crate::utils::socket::bind_socket;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
 use etherparse::{NetHeaders, PacketHeaders};
@@ -32,8 +32,7 @@ type ConnectionQueues = Arc<DashMap<IpAddr, Sender<Bytes>>>;
 pub struct QuincyServer {
     config: ServerConfig,
     connection_queues: ConnectionQueues,
-    user_database: UserDatabase,
-    address_pool: AddressPool,
+    address_pool: Arc<AddressPool>,
 }
 
 impl QuincyServer {
@@ -42,17 +41,15 @@ impl QuincyServer {
     /// ### Arguments
     /// - `config` - the server configuration
     pub fn new(config: ServerConfig) -> Result<Self> {
-        let interface_address =
-            Ipv4Net::with_netmask(config.address_tunnel, config.address_mask)?.into();
+        let interface_address = Ipv4Net::with_netmask(config.address_tunnel, config.address_mask)
+            .context("invalid interface address or mask")?;
 
-        let user_database = UserDatabase::new(load_users_file(&config.users_file)?);
-        let address_pool = AddressPool::new(interface_address);
+        let address_pool = AddressPool::new(interface_address.into());
 
         Ok(Self {
             config,
             connection_queues: Arc::new(DashMap::new()),
-            user_database,
-            address_pool,
+            address_pool: Arc::new(address_pool),
         })
     }
 
@@ -60,7 +57,13 @@ impl QuincyServer {
     pub async fn run<I: Interface>(self) -> Result<()> {
         let interface_address =
             Ipv4Net::with_netmask(self.config.address_tunnel, self.config.address_mask)?.into();
+
         let interface = I::create(interface_address, self.config.connection.mtu)?;
+        let auth_server = AuthServer::new(
+            self.config.authentication.clone(),
+            self.address_pool.clone(),
+            self.config.connection.connection_timeout,
+        )?;
 
         let (tun_read, tun_write) = interface.split();
         let (sender, receiver) = channel(PACKET_CHANNEL_SIZE);
@@ -76,7 +79,7 @@ impl QuincyServer {
             tokio::spawn(Self::process_inbound_traffic(tun_write, receiver)),
         ]);
 
-        let handler_task = self.handle_connections(sender);
+        let handler_task = self.handle_connections(auth_server, sender);
 
         let result = tokio::select! {
             handler_task_result = handler_task => handler_task_result,
@@ -93,7 +96,11 @@ impl QuincyServer {
     /// ### Arguments
     /// - `ingress_queue` - the queue to send data to the TUN interface
     /// - `endpoint` - the QUIC endpoint
-    async fn handle_connections(&self, ingress_queue: Sender<Bytes>) -> Result<()> {
+    async fn handle_connections(
+        &self,
+        auth_server: AuthServer,
+        ingress_queue: Sender<Bytes>,
+    ) -> Result<()> {
         let endpoint = self.create_quinn_endpoint()?;
 
         info!(
@@ -129,7 +136,7 @@ impl QuincyServer {
                     );
 
                     authentication_tasks.push(
-                        connection.authenticate(&self.user_database, &self.address_pool, self.config.connection.connection_timeout)
+                        connection.authenticate(&auth_server)
                     );
                 }
 
