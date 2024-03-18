@@ -27,16 +27,19 @@ pub struct ServerConfig {
     pub certificate_file: PathBuf,
     /// The certificate private key to use for the tunnel
     pub certificate_key_file: PathBuf,
-    /// The address to bind the tunnel to
+    /// The address to bind the tunnel to (default = 0.0.0.0)
     #[serde(default = "default_bind_address")]
     pub bind_address: IpAddr,
-    /// The port to bind the tunnel to
+    /// The port to bind the tunnel to (default = 55555)
     #[serde(default = "default_bind_port")]
     pub bind_port: u16,
     /// The address of this tunnel
     pub address_tunnel: Ipv4Addr,
     /// The address mask for this tunnel
     pub address_mask: Ipv4Addr,
+    /// Whether to isolate clients from each other (default = true)
+    #[serde(default = "default_true_fn")]
+    pub isolate_clients: bool,
     /// Authentication configuration
     pub authentication: ServerAuthenticationConfig,
     /// Miscellaneous connection configuration
@@ -48,7 +51,7 @@ pub struct ServerConfig {
 /// Represents the configuration for a Quincy server's authentication.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ServerAuthenticationConfig {
-    /// The type of authenticator to use
+    /// The type of authenticator to use (default = users_file)
     #[serde(default = "default_auth_type")]
     pub auth_type: AuthType,
     /// The path to the file containing the list of users and their password hashes
@@ -71,7 +74,7 @@ pub struct ClientConfig {
 /// Represents the configuration for a Quincy client's authentication.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientAuthenticationConfig {
-    /// The type of authenticator to use
+    /// The type of authenticator to use (default = users_file)
     #[serde(default = "default_auth_type")]
     pub auth_type: AuthType,
     /// The username to use for authentication
@@ -85,19 +88,19 @@ pub struct ClientAuthenticationConfig {
 /// Represents miscellaneous connection configuration.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
-    /// The MTU to use for connections and the TUN interface
+    /// The MTU to use for connections and the TUN interface (default = 1400)
     #[serde(default = "default_mtu")]
     pub mtu: u16,
-    /// The time after which a connection is considered timed out
+    /// The time after which a connection is considered timed out (default = 30s)
     #[serde(default = "default_timeout")]
     pub connection_timeout: Duration,
-    /// Keep alive interval for connections
+    /// Keep alive interval for connections (default = 25s)
     #[serde(default = "default_keep_alive_interval")]
     pub keep_alive_interval: Duration,
-    /// The size of the send buffer of the socket and Quinn endpoint
+    /// The size of the send buffer of the socket and Quinn endpoint (default = 2097152)
     #[serde(default = "default_buffer_size")]
     pub send_buffer_size: u64,
-    /// The size of the receive buffer of the socket and Quinn endpoint
+    /// The size of the receive buffer of the socket and Quinn endpoint (default = 2097152)
     #[serde(default = "default_buffer_size")]
     pub recv_buffer_size: u64,
 }
@@ -105,7 +108,7 @@ pub struct ConnectionConfig {
 /// Represents logging configuration.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct LogConfig {
-    /// The log level to use
+    /// The log level to use (default = info)
     #[serde(default = "default_log_level")]
     pub level: String,
 }
@@ -182,6 +185,10 @@ fn default_keep_alive_interval() -> Duration {
 
 fn default_auth_type() -> AuthType {
     AuthType::UsersFile
+}
+
+fn default_true_fn() -> bool {
+    true
 }
 
 impl ClientConfig {

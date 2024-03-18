@@ -10,8 +10,7 @@ use quinn::{Connection, Endpoint, VarInt};
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
-use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
-use bytes::Bytes;
+use crate::interface::{Interface, InterfaceRead, InterfaceWrite, Packet};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -183,15 +182,9 @@ impl QuincyClient {
         debug!("Started outgoing traffic task (interface -> QUIC tunnel)");
 
         loop {
-            let data = read_interface.read_packet(interface_mtu).await?;
+            let packet = read_interface.read_packet(interface_mtu).await?;
 
-            debug!(
-                "Sending {} bytes to {:?}",
-                data.len(),
-                connection.remote_address()
-            );
-
-            connection.send_datagram(data)?;
+            connection.send_datagram(packet.into())?;
         }
     }
 
@@ -201,7 +194,7 @@ impl QuincyClient {
     /// - `tun_queue` - the TUN queue
     /// - `tun_write` - the write half of the TUN interface
     async fn process_tun_queue(
-        mut tun_queue: Receiver<Bytes>,
+        mut tun_queue: Receiver<Packet>,
         mut tun_write: impl InterfaceWrite,
     ) -> Result<()> {
         debug!("Started TUN queue task (interface -> QUIC tunnel)");
@@ -223,20 +216,14 @@ impl QuincyClient {
     /// - `tun_queue` - the TUN queue
     async fn process_inbound_traffic(
         connection: Arc<Connection>,
-        tun_queue: Sender<Bytes>,
+        tun_queue: Sender<Packet>,
     ) -> Result<()> {
         debug!("Started inbound traffic task (QUIC tunnel -> interface)");
 
         loop {
-            let data = connection.read_datagram().await?;
+            let packet = connection.read_datagram().await?.into();
 
-            debug!(
-                "Received {} bytes from {:?}",
-                data.len(),
-                connection.remote_address()
-            );
-
-            tun_queue.send(data).await?;
+            tun_queue.send(packet).await?;
         }
     }
 }
