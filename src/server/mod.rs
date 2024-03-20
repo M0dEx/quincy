@@ -259,7 +259,7 @@ impl QuincyServer {
         debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
         if isolate_clients {
-            relay_isolated(tun_write, ingress_queue).await
+            relay_isolated(connection_queues, tun_write, ingress_queue).await
         } else {
             relay_unisolated(connection_queues, tun_write, ingress_queue).await
         }
@@ -268,6 +268,7 @@ impl QuincyServer {
 
 #[inline]
 async fn relay_isolated(
+    connection_queues: ConnectionQueues,
     mut tun_write: impl InterfaceWrite,
     mut ingress_queue: Receiver<Packet>,
 ) -> Result<()> {
@@ -279,7 +280,22 @@ async fn relay_isolated(
             .recv_many(&mut packets, PACKET_BUFFER_SIZE)
             .await;
 
-        tun_write.write_packets(&packets).await?;
+        for packet in &packets {
+            let dest_addr = match packet.destination() {
+                Ok(addr) => addr,
+                Err(e) => {
+                    warn!("Received packet with malformed header structure: {e}");
+                    continue;
+                }
+            };
+
+            if connection_queues.contains_key(&dest_addr) {
+                // Drop the packet if the destination is a known client
+                continue;
+            }
+
+            tun_write.write_packet(packet).await?;
+        }
     }
 }
 
