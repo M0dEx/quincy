@@ -1,4 +1,4 @@
-use crate::{auth::server::AuthServer, utils::tasks::abort_all};
+use crate::{auth::server::AuthServer, interface::Packet, utils::tasks::abort_all};
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
 use futures::stream::FuturesUnordered;
@@ -15,7 +15,7 @@ pub struct QuincyConnection {
     connection: Connection,
     username: Option<String>,
     client_address: Option<IpNet>,
-    ingress_queue: Sender<Bytes>,
+    ingress_queue: Sender<Packet>,
 }
 
 impl QuincyConnection {
@@ -24,7 +24,7 @@ impl QuincyConnection {
     /// ### Arguments
     /// - `connection` - the underlying QUIC connection
     /// - `tun_queue` - the queue to send data to the TUN interface
-    pub fn new(connection: Connection, tun_queue: Sender<Bytes>) -> Self {
+    pub fn new(connection: Connection, tun_queue: Sender<Packet>) -> Self {
         Self {
             connection,
             username: None,
@@ -106,12 +106,12 @@ impl QuincyConnection {
     /// Processes incoming data and sends it to the TUN interface queue.
     async fn process_incoming_data(
         connection: Connection,
-        ingress_queue: Sender<Bytes>,
+        ingress_queue: Sender<Packet>,
     ) -> Result<()> {
         loop {
-            let data = connection.read_datagram().await?;
+            let packet = connection.read_datagram().await?.into();
 
-            ingress_queue.send(data).await?;
+            ingress_queue.send(packet).await?;
         }
     }
 
