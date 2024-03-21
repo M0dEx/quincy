@@ -12,7 +12,6 @@ use crate::utils::socket::bind_socket;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
-use etherparse::{NetHeaders, PacketHeaders};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use ipnet::Ipv4Net;
@@ -20,7 +19,7 @@ use quinn::{Endpoint, VarInt};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
-use crate::interface::{Interface, InterfaceRead, InterfaceWrite};
+use crate::interface::{Interface, InterfaceRead, InterfaceWrite, Packet};
 use crate::utils::tasks::abort_all;
 use tracing::{debug, info, warn};
 
@@ -54,7 +53,7 @@ impl QuincyServer {
     }
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
-    pub async fn run<I: Interface>(self) -> Result<()> {
+    pub async fn run<I: Interface>(&self) -> Result<()> {
         let interface_address =
             Ipv4Net::with_netmask(self.config.address_tunnel, self.config.address_mask)?.into();
 
@@ -76,7 +75,12 @@ impl QuincyServer {
                 self.connection_queues.clone(),
                 self.config.connection.mtu as usize,
             )),
-            tokio::spawn(Self::process_inbound_traffic(tun_write, receiver)),
+            tokio::spawn(Self::process_inbound_traffic(
+                self.connection_queues.clone(),
+                tun_write,
+                receiver,
+                self.config.isolate_clients,
+            )),
         ]);
 
         let handler_task = self.handle_connections(auth_server, sender);
@@ -99,7 +103,7 @@ impl QuincyServer {
     async fn handle_connections(
         &self,
         auth_server: AuthServer,
-        ingress_queue: Sender<Bytes>,
+        ingress_queue: Sender<Packet>,
     ) -> Result<()> {
         let endpoint = self.create_quinn_endpoint()?;
 
@@ -218,60 +222,112 @@ impl QuincyServer {
         debug!("Started tunnel outbound traffic task (interface -> connection queue)");
 
         loop {
-            let buf = tun_read.read_packet(buffer_size).await?;
-
-            let headers = match PacketHeaders::from_ip_slice(&buf) {
-                Ok(headers) => headers,
+            let packet = tun_read.read_packet(buffer_size).await?;
+            let dest_addr = match packet.destination() {
+                Ok(addr) => addr,
                 Err(e) => {
-                    warn!("Failed to parse IP packet: {e}");
+                    warn!("Received packet with malformed header structure: {e}");
                     continue;
                 }
             };
 
-            let net_header = match headers.net {
-                Some(net) => net,
-                None => {
-                    warn!("Received a packet with invalid IP header");
-                    continue;
-                }
-            };
-
-            let dest_addr: IpAddr = match net_header {
-                NetHeaders::Ipv4(header, _) => header.destination.into(),
-                NetHeaders::Ipv6(header, _) => header.destination.into(),
-            };
             debug!("Destination address for packet: {dest_addr}");
 
             let connection_queue = match connection_queues.get(&dest_addr) {
                 Some(connection_queue) => connection_queue,
                 None => continue,
             };
+
             debug!("Found connection for IP {dest_addr}");
 
-            connection_queue.send(buf).await?;
+            connection_queue.send(packet.into()).await?;
         }
     }
 
     /// Reads data from the QUIC connection and sends it to the TUN interface worker.
     ///
     /// ### Arguments
+    /// - `connection_queues` - the queues for sending data to the QUIC connections
     /// - `tun_write` - the write half of the TUN interface
     /// - `ingress_queue` - the queue for sending data to the TUN interface
     async fn process_inbound_traffic(
-        mut tun_write: impl InterfaceWrite,
-        mut ingress_queue: Receiver<Bytes>,
+        connection_queues: ConnectionQueues,
+        tun_write: impl InterfaceWrite,
+        ingress_queue: Receiver<Packet>,
+        isolate_clients: bool,
     ) -> Result<()> {
         debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
-        let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
+        if isolate_clients {
+            relay_isolated(connection_queues, tun_write, ingress_queue).await
+        } else {
+            relay_unisolated(connection_queues, tun_write, ingress_queue).await
+        }
+    }
+}
 
-        loop {
-            packets.clear();
-            ingress_queue
-                .recv_many(&mut packets, PACKET_BUFFER_SIZE)
-                .await;
+#[inline]
+async fn relay_isolated(
+    connection_queues: ConnectionQueues,
+    mut tun_write: impl InterfaceWrite,
+    mut ingress_queue: Receiver<Packet>,
+) -> Result<()> {
+    let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
 
-            tun_write.write_packets(&packets).await?;
+    loop {
+        packets.clear();
+        ingress_queue
+            .recv_many(&mut packets, PACKET_BUFFER_SIZE)
+            .await;
+
+        for packet in &packets {
+            let dest_addr = match packet.destination() {
+                Ok(addr) => addr,
+                Err(e) => {
+                    warn!("Received packet with malformed header structure: {e}");
+                    continue;
+                }
+            };
+
+            if connection_queues.contains_key(&dest_addr) {
+                // Drop the packet if the destination is a known client
+                continue;
+            }
+
+            tun_write.write_packet(packet).await?;
+        }
+    }
+}
+
+#[inline]
+async fn relay_unisolated(
+    connection_queues: ConnectionQueues,
+    mut tun_write: impl InterfaceWrite,
+    mut ingress_queue: Receiver<Packet>,
+) -> Result<()> {
+    let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
+
+    loop {
+        packets.clear();
+        ingress_queue
+            .recv_many(&mut packets, PACKET_BUFFER_SIZE)
+            .await;
+
+        for packet in &packets {
+            let dest_addr = match packet.destination() {
+                Ok(addr) => addr,
+                Err(e) => {
+                    warn!("Received packet with malformed header structure: {e}");
+                    continue;
+                }
+            };
+
+            match connection_queues.get(&dest_addr) {
+                // Send the packet to the appropriate QUIC connection
+                Some(connection_queue) => connection_queue.send(packet.clone().into()).await?,
+                // Send the packet to the TUN interface
+                None => tun_write.write_packet(packet).await?,
+            }
         }
     }
 }
