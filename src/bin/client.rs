@@ -12,7 +12,7 @@ use tun2::AsyncDevice;
 #[derive(Parser)]
 #[command(name = "quincy")]
 pub struct Args {
-    #[arg(long)]
+    #[arg(long, default_value = "client.toml")]
     pub config_path: PathBuf,
     #[arg(long, default_value = "QUINCY_")]
     pub env_prefix: String,
@@ -34,7 +34,7 @@ async fn main() {
 
 /// Runs the Quincy client.
 async fn run_client() -> Result<()> {
-    let args = Args::try_parse()?;
+    let args = Args::parse();
     let config = ClientConfig::from_path(&args.config_path, &args.env_prefix)?;
     // Enable tracing with the log level from the configuration.
     tracing::subscriber::set_global_default(log_subscriber(&config.log.level))?;
