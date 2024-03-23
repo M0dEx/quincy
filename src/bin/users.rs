@@ -17,7 +17,7 @@ pub struct Args {
     pub add: bool,
     #[arg(short, long, group = "mode")]
     pub delete: bool,
-    #[arg(requires = "mode")]
+    #[arg(requires = "mode", default_value = "users")]
     pub users_file_path: PathBuf,
 }
 
