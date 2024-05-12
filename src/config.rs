@@ -3,8 +3,13 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use quinn::{EndpointConfig, TransportConfig};
-use rustls::{Certificate, RootCertStore};
+use quinn::{
+    crypto::rustls::{QuicClientConfig, QuicServerConfig},
+    EndpointConfig, TransportConfig,
+};
+use rustls::crypto::ring::cipher_suite::TLS13_AES_128_GCM_SHA256;
+use rustls::pki_types::CertificateDer;
+use rustls::RootCertStore;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::net::{IpAddr, Ipv4Addr};
@@ -13,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::constants::{
-    QUIC_MTU_OVERHEAD, QUINCY_CIPHER_SUITES, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
 use crate::utils::certificates::{load_certificates_from_file, load_private_key_from_file};
 use tracing::error;
@@ -197,7 +202,7 @@ impl ClientConfig {
     /// ### Returns
     /// - `quinn::ClientConfig` - the Quinn client configuration
     pub fn as_quinn_client_config(&self) -> Result<quinn::ClientConfig> {
-        let trusted_certificates: Vec<Certificate> = self
+        let trusted_certificates: Vec<CertificateDer> = self
             .authentication
             .trusted_certificates
             .iter()
@@ -214,19 +219,27 @@ impl ClientConfig {
         let mut cert_store = RootCertStore::empty();
 
         for certificate in trusted_certificates {
-            cert_store.add(&certificate)?;
+            cert_store.add(certificate)?;
         }
 
-        let mut rustls_config = rustls::ClientConfig::builder()
-            .with_cipher_suites(QUINCY_CIPHER_SUITES)
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-            .with_root_certificates(cert_store)
-            .with_no_client_auth();
+        let mut rustls_config =
+            rustls::ClientConfig::builder_with_provider(CRYPTO_PROVIDER.clone())
+                .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+                .with_root_certificates(cert_store)
+                .with_no_client_auth();
 
-        rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
+        rustls_config.alpn_protocols.clone_from(&TLS_ALPN_PROTOCOLS);
 
-        let mut quinn_config = quinn::ClientConfig::new(Arc::new(rustls_config));
+        let quic_client_config = QuicClientConfig::with_initial(
+            rustls_config.into(),
+            TLS13_AES_128_GCM_SHA256
+                .tls13()
+                .expect("QUIC initial suite is a valid TLS 1.3 suite")
+                .quic_suite()
+                .expect("QUIC initial suite is a valid QUIC suite"),
+        )?;
+
+        let mut quinn_config = quinn::ClientConfig::new(Arc::new(quic_client_config));
         let mut transport_config = TransportConfig::default();
 
         transport_config.max_idle_timeout(Some(self.connection.connection_timeout.try_into()?));
@@ -254,16 +267,25 @@ impl ServerConfig {
         let key = load_private_key_from_file(&certificate_key_path)?;
         let certs = load_certificates_from_file(&certificate_file_path)?;
 
-        let mut rustls_config = rustls::ServerConfig::builder()
-            .with_cipher_suites(QUINCY_CIPHER_SUITES)
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?;
+        let mut rustls_config =
+            rustls::ServerConfig::builder_with_provider(CRYPTO_PROVIDER.clone())
+                .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+                .with_no_client_auth()
+                .with_single_cert(certs, key.into())?;
 
-        rustls_config.alpn_protocols = TLS_ALPN_PROTOCOLS.clone();
+        rustls_config.alpn_protocols.clone_from(&TLS_ALPN_PROTOCOLS);
+        rustls_config.max_early_data_size = 0;
 
-        let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(rustls_config));
+        let quic_server_config = QuicServerConfig::with_initial(
+            rustls_config.into(),
+            TLS13_AES_128_GCM_SHA256
+                .tls13()
+                .expect("QUIC initial suite is a valid TLS 1.3 suite")
+                .quic_suite()
+                .expect("QUIC initial suite is a valid QUIC suite"),
+        )?;
+
+        let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(quic_server_config));
         let mut transport_config = TransportConfig::default();
 
         transport_config.max_idle_timeout(Some(self.connection.connection_timeout.try_into()?));

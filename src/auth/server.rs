@@ -51,7 +51,7 @@ impl AuthServer {
 
         let message = timeout(self.auth_timeout, auth_stream.recv_message()).await??;
 
-        match message {
+        let auth_result = match message {
             AuthMessage::Authenticate(payload) => {
                 let (username, address) = self
                     .authenticator
@@ -68,6 +68,10 @@ impl AuthServer {
                 Ok((username, address))
             }
             _ => Err(anyhow!("authentication failed")),
-        }
+        }?;
+
+        auth_stream.close()?;
+
+        Ok(auth_result)
     }
 }
