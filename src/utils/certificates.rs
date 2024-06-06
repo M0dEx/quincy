@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Result;
-use rustls::{Certificate, PrivateKey};
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -11,14 +11,14 @@ use std::path::Path;
 /// - `path` - Path to the file containing the certificates.
 ///
 /// ### Returns
-/// - `Vec<Certificate>` - A list of loaded certificates.
-pub fn load_certificates_from_file(path: &Path) -> Result<Vec<Certificate>> {
+/// - `Vec<CertificateDer>` - A list of loaded certificates.
+pub fn load_certificates_from_file(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
 
-    let certificates_bytes = rustls_pemfile::certs(&mut reader)?;
+    let certs: Result<Vec<CertificateDer>, _> = rustls_pemfile::certs(&mut reader).collect();
 
-    Ok(certificates_bytes.into_iter().map(Certificate).collect())
+    Ok(certs?)
 }
 
 /// Loads a private key from a file.
@@ -27,15 +27,13 @@ pub fn load_certificates_from_file(path: &Path) -> Result<Vec<Certificate>> {
 /// - `path` - Path to the file containing the private key.
 ///
 /// ### Returns
-/// - `PrivateKey` - The loaded private key.
-pub fn load_private_key_from_file(path: &Path) -> Result<PrivateKey> {
+/// - `PrivatePkcs8KeyDer` - The loaded private key.
+pub fn load_private_key_from_file(path: &Path) -> Result<PrivatePkcs8KeyDer<'static>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
 
-    let private_key_bytes = rustls_pemfile::pkcs8_private_keys(&mut reader)?
-        .first()
-        .ok_or_else(|| anyhow!("No private key found in the file: {path:?}"))?
-        .clone();
-
-    Ok(PrivateKey(private_key_bytes))
+    Ok(rustls_pemfile::pkcs8_private_keys(&mut reader)
+        .last()
+        .ok_or(anyhow!("No private key found in file"))??
+        .clone_key())
 }

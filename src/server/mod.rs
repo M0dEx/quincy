@@ -98,8 +98,8 @@ impl QuincyServer {
     /// Handles incoming connections by spawning a new QuincyConnection instance for them.
     ///
     /// ### Arguments
-    /// - `ingress_queue` - the queue to send data to the TUN interface
-    /// - `endpoint` - the QUIC endpoint
+    /// - `auth_server` - the authentication server to use for authenticating clients
+    /// - `ingress_queue` - the queue for sending data to the TUN interface
     async fn handle_connections(
         &self,
         auth_server: AuthServer,
@@ -185,9 +185,6 @@ impl QuincyServer {
     }
 
     /// Creates a Quinn QUIC endpoint that clients can connect to.
-    ///
-    /// ### Arguments
-    /// - `quinn_config` - the Quinn server configuration to use
     fn create_quinn_endpoint(&self) -> Result<Endpoint> {
         let quinn_config = self.config.as_quinn_server_config()?;
 
@@ -250,6 +247,7 @@ impl QuincyServer {
     /// - `connection_queues` - the queues for sending data to the QUIC connections
     /// - `tun_write` - the write half of the TUN interface
     /// - `ingress_queue` - the queue for sending data to the TUN interface
+    /// - `isolate_clients` - whether to isolate clients from each other
     async fn process_inbound_traffic(
         connection_queues: ConnectionQueues,
         tun_write: impl InterfaceWrite,

@@ -86,8 +86,10 @@ impl AuthStream {
         serde_json::from_slice(&buf).context("failed to parse AuthMessage JSON")
     }
 
-    pub async fn close(mut self) -> Result<()> {
-        self.send_stream.finish().await?;
+    /// Closes the authentication stream.
+    pub fn close(mut self) -> Result<()> {
+        // Ignore the result of finish() since we're closing the stream anyway
+        _ = self.send_stream.finish();
 
         Ok(())
     }
