@@ -12,7 +12,7 @@ pub fn log_subscriber(log_level: &str) -> impl Subscriber {
     let with_ansi = nu_ansi_term::enable_ansi_support().is_ok();
 
     #[cfg(not(windows))]
-    let with_ansi = false;
+    let with_ansi = true;
 
     let filter_layer = EnvFilter::try_new(log_level).unwrap();
 
