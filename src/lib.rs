@@ -1,7 +1,7 @@
-#[cfg(not(target_env = "msvc"))]
+#[cfg(unix)]
 use jemallocator::Jemalloc;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(unix)]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
