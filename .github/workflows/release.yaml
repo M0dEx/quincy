@@ -40,7 +40,7 @@ jobs:
         name: Cache toolchain and dependencies
       - name: Build x86_64 Linux binaries
         run: |
-          cargo build --release
+          cargo build --release -F jemalloc
           mkdir ./quincy-linux-x86_64
           cp target/release/quincy-client quincy-linux-x86_64/
           cp target/release/quincy-server quincy-linux-x86_64/
@@ -69,7 +69,7 @@ jobs:
         name: Cache toolchain and dependencies
       - name: Build arm64 macOS binaries
         run: |
-          cargo build --release
+          cargo build --release -F jemalloc
           mkdir ./quincy-macos-arm64
           cp target/release/quincy-client quincy-macos-arm64/
           cp target/release/quincy-server quincy-macos-arm64/

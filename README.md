@@ -45,6 +45,12 @@ cargo build --release
 ```
 The resulting binaries can be found in the `target/debug` and `target/release` directories.
 
+Quincy can optionally use the [jemalloc](https://jemalloc.net/) memory allocator for slightly improved performance. 
+To enable it, add the `--features jemalloc` switch to the `build`/`install` command:
+```bash
+cargo build --release --features jemalloc
+```
+
 ## Usage
 Quincy is split into 3 binaries:
 - `quincy-client`: The VPN client

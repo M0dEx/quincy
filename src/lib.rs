@@ -1,7 +1,7 @@
-#[cfg(unix)]
+#[cfg(all(feature = "jemalloc", unix))]
 use jemallocator::Jemalloc;
 
-#[cfg(unix)]
+#[cfg(all(feature = "jemalloc", unix))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
