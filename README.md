@@ -24,6 +24,7 @@ The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an e
 ## Supported platforms
 - [X] Windows (x86_64), using [Wintun](https://www.wintun.net/)
 - [X] Linux (x86_64, aarch64)
+- [X] FreeBSD (x86_64, aarch64)
 - [X] MacOS (aarch64)
 
 ## Installation
