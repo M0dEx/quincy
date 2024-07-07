@@ -19,21 +19,29 @@ pub fn bind_socket(
     recv_buffer_size: usize,
 ) -> Result<std::net::UdpSocket> {
     let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))
-        .context("create socket")?;
+        .context("failed to create UDP socket")?;
 
     if addr.is_ipv6() {
-        socket.set_only_v6(false).context("set_only_v6")?;
+        socket
+            .set_only_v6(false)
+            .context("failed to make UDP socket dual-stack (not IPv6-only)")?;
     }
 
     socket
         .bind(&socket2::SockAddr::from(addr))
-        .context("binding endpoint")?;
+        .context("failed to bind UDP socket")?;
     socket
         .set_send_buffer_size(send_buffer_size)
-        .context("send buffer size")?;
+        .context(format!(
+            "failed to set UDP socket send buffer size: {}",
+            send_buffer_size
+        ))?;
     socket
         .set_recv_buffer_size(recv_buffer_size)
-        .context("recv buffer size")?;
+        .context(format!(
+            "failed to set UDP socket recv buffer size: {}",
+            recv_buffer_size
+        ))?;
 
     let buf_size = socket.send_buffer_size().context("send buffer size")?;
     if buf_size < send_buffer_size {

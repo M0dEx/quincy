@@ -41,7 +41,10 @@ impl QuincyServer {
     /// - `config` - the server configuration
     pub fn new(config: ServerConfig) -> Result<Self> {
         let interface_address = Ipv4Net::with_netmask(config.address_tunnel, config.address_mask)
-            .context("invalid interface address or mask")?;
+            .context(format!(
+            "invalid interface address or mask: {}/{}",
+            config.address_tunnel, config.address_mask
+        ))?;
 
         let address_pool = AddressPool::new(interface_address.into());
 
