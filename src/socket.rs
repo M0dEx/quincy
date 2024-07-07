@@ -10,6 +10,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 /// - `addr` - the address to bind the socket to
 /// - `send_buffer_size` - the size of the send buffer
 /// - `recv_buffer_size` - the size of the receive buffer
+/// - `reuse_socket` - whether to reuse the socket across multiple Quincy instances
 ///
 /// ### Returns
 /// - `std::net::UdpSocket` - the bound socket
@@ -17,6 +18,7 @@ pub fn bind_socket(
     addr: SocketAddr,
     send_buffer_size: usize,
     recv_buffer_size: usize,
+    reuse_socket: bool,
 ) -> Result<std::net::UdpSocket> {
     let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))
         .context("failed to create UDP socket")?;
@@ -25,6 +27,22 @@ pub fn bind_socket(
         socket
             .set_only_v6(false)
             .context("failed to make UDP socket dual-stack (not IPv6-only)")?;
+    }
+
+    if reuse_socket {
+        socket
+            .set_reuse_address(true)
+            .context("failed to set UDP socket SO_REUSEADDR")?;
+
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        socket
+            .set_reuse_port(true)
+            .context("failed to set UDP socket SO_REUSEPORT")?;
+
+        #[cfg(target_os = "freebsd")]
+        socket
+            .set_reuse_port_lb(true)
+            .context("failed to set UDP socket SO_REUSEPORT_LB")?;
     }
 
     socket

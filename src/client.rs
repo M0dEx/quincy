@@ -2,8 +2,8 @@ use crate::auth::client::AuthClient;
 
 use crate::config::ClientConfig;
 use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
+use crate::socket::bind_socket;
 use crate::utils::signal_handler::handle_ctrl_c;
-use crate::utils::socket::bind_socket;
 use crate::utils::tasks::abort_all;
 use anyhow::{anyhow, Result};
 use quinn::{Connection, Endpoint, VarInt};
@@ -112,6 +112,7 @@ impl QuincyClient {
             bind_addr,
             self.config.connection.send_buffer_size as usize,
             self.config.connection.recv_buffer_size as usize,
+            false,
         )?;
 
         let endpoint_config = self.config.connection.as_endpoint_config()?;

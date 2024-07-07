@@ -17,10 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::constants::{
     CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
 };
-use crate::utils::certificates::{load_certificates_from_file, load_private_key_from_file};
 use tracing::error;
 
 /// Represents the configuration for a Quincy server.
@@ -38,6 +38,13 @@ pub struct ServerConfig {
     /// The port to bind the tunnel to (default = 55555)
     #[serde(default = "default_bind_port")]
     pub bind_port: u16,
+    /// Whether to reuse the socket (default = false)
+    ///
+    /// This is useful when running multiple Quincy instances on the same port for load balancing.
+    ///
+    /// Unsupported on Windows.
+    #[serde(default = "default_false_fn")]
+    pub reuse_socket: bool,
     /// The address of this tunnel
     pub address_tunnel: Ipv4Addr,
     /// The address mask for this tunnel
@@ -194,6 +201,10 @@ fn default_auth_type() -> AuthType {
 
 fn default_true_fn() -> bool {
     true
+}
+
+fn default_false_fn() -> bool {
+    false
 }
 
 impl ClientConfig {

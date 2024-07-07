@@ -6,9 +6,11 @@ use jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 pub mod auth;
+pub mod certificates;
 pub mod client;
 pub mod config;
 pub mod constants;
 pub mod interface;
 pub mod server;
+pub mod socket;
 pub mod utils;

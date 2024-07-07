@@ -7,8 +7,8 @@ use std::sync::Arc;
 use crate::auth::server::AuthServer;
 use crate::config::ServerConfig;
 use crate::server::connection::QuincyConnection;
+use crate::socket::bind_socket;
 use crate::utils::signal_handler::handle_ctrl_c;
-use crate::utils::socket::bind_socket;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -195,6 +195,7 @@ impl QuincyServer {
             SocketAddr::new(self.config.bind_address, self.config.bind_port),
             self.config.connection.send_buffer_size as usize,
             self.config.connection.recv_buffer_size as usize,
+            self.config.reuse_socket,
         )?;
 
         let endpoint_config = self.config.connection.as_endpoint_config()?;
