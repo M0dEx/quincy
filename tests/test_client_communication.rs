@@ -1,20 +1,19 @@
 use std::net::Ipv4Addr;
 
+use crate::common::dummy_packet;
 use anyhow::Result;
 use common::{
     client_config, make_queue_pair, server_config, TestInterface, TestReceiver, TestSender,
 };
 use ipnet::IpNet;
 use once_cell::sync::Lazy;
+use quincy::network::interface::Interface;
 use quincy::{
     client::QuincyClient,
     config::{ClientConfig, ServerConfig},
-    interface::Interface,
     server::QuincyServer,
 };
 use rstest::rstest;
-
-use crate::common::dummy_packet;
 
 mod common;
 

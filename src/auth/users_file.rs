@@ -69,7 +69,7 @@ impl ServerAuthenticator for UsersFileServerAuthenticator {
         &self,
         address_pool: &AddressPool,
         authentication_payload: Value,
-    ) -> anyhow::Result<(String, IpNet)> {
+    ) -> Result<(String, IpNet)> {
         let payload: UsersFilePayload = serde_json::from_value(authentication_payload)
             .context("failed to parse UsersFilePayload")?;
 

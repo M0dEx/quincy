@@ -1,8 +1,7 @@
 name = "tun0"
 certificate_file = "tests/static/cert.pem"
 certificate_key_file = "tests/static/key.pem"
-address_tunnel = "10.0.0.1"
-address_mask = "255.255.255.0"
+tunnel_network = "10.0.0.1/24"
 bind_address = "::"
 bind_port = 55155
 

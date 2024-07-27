@@ -7,7 +7,7 @@ use ipnet::IpNet;
 use once_cell::sync::Lazy;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, ServerConfig};
-use quincy::interface::Interface;
+use quincy::network::interface::Interface;
 use quincy::server::QuincyServer;
 use rstest::rstest;
 use std::net::Ipv4Addr;

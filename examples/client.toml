@@ -13,6 +13,12 @@ trusted_certificates = ["examples/cert/ca_cert.pem"]
 # The MTU used by the QUIC tunnel and the spawned TUN interface
 mtu = 1400
 
+[network]
+routes = [
+    "10.0.1.0/24",
+    "10.11.12.0/24"
+]
+
 [log]
 # The log level
 level = "info"
