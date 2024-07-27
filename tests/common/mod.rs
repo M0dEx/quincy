@@ -2,7 +2,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use etherparse::PacketBuilder;
 use once_cell::sync::Lazy;
 use quincy::config::{ClientConfig, FromPath, ServerConfig};
-use quincy::interface::{InterfaceRead, InterfaceWrite};
+use quincy::network::interface::{InterfaceRead, InterfaceWrite};
 use rstest::fixture;
 use std::io::Error;
 use std::net::Ipv4Addr;

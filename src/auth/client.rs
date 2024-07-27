@@ -39,8 +39,8 @@ impl AuthClient {
     /// - `connection` - The connection to the server
     ///
     /// ### Returns
-    /// - `IpNet` - the tunnel address received from the server
-    pub async fn authenticate(&self, connection: &Connection) -> Result<IpNet> {
+    /// - (IpNet, IpNet) - The client and server addresses
+    pub async fn authenticate(&self, connection: &Connection) -> Result<(IpNet, IpNet)> {
         let auth_stream_builder = AuthStreamBuilder::new(AuthStreamMode::Client);
         let mut auth_stream = auth_stream_builder
             .connect(connection, self.auth_timeout)
@@ -48,13 +48,18 @@ impl AuthClient {
 
         let authentication_payload = self.authenticator.generate_payload().await?;
         auth_stream
-            .send_message(AuthMessage::Authenticate(authentication_payload))
+            .send_message(AuthMessage::Authenticate {
+                payload: authentication_payload,
+            })
             .await?;
 
         let auth_response = auth_stream.recv_message().await?;
 
         match auth_response {
-            AuthMessage::Authenticated(addr, netmask) => Ok(IpNet::with_netmask(addr, netmask)?),
+            AuthMessage::Authenticated {
+                client_address,
+                server_address,
+            } => Ok((client_address, server_address)),
             _ => Err(anyhow!("authentication failed")),
         }
     }

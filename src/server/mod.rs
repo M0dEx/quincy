@@ -9,21 +9,20 @@ use crate::config::ServerConfig;
 use crate::server::connection::QuincyConnection;
 use crate::socket::bind_socket;
 use crate::utils::signal_handler::handle_ctrl_c;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use ipnet::Ipv4Net;
 use quinn::{Endpoint, VarInt};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
+use self::address_pool::AddressPool;
 use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
-use crate::interface::{Interface, InterfaceRead, InterfaceWrite, Packet};
+use crate::network::interface::{Interface, InterfaceRead, InterfaceWrite};
+use crate::network::packet::Packet;
 use crate::utils::tasks::abort_all;
 use tracing::{debug, info, warn};
-
-use self::address_pool::AddressPool;
 
 type ConnectionQueues = Arc<DashMap<IpAddr, Sender<Bytes>>>;
 
@@ -40,13 +39,7 @@ impl QuincyServer {
     /// ### Arguments
     /// - `config` - the server configuration
     pub fn new(config: ServerConfig) -> Result<Self> {
-        let interface_address = Ipv4Net::with_netmask(config.address_tunnel, config.address_mask)
-            .context(format!(
-            "invalid interface address or mask: {}/{}",
-            config.address_tunnel, config.address_mask
-        ))?;
-
-        let address_pool = AddressPool::new(interface_address.into());
+        let address_pool = AddressPool::new(config.tunnel_network.into());
 
         Ok(Self {
             config,
@@ -57,12 +50,13 @@ impl QuincyServer {
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
     pub async fn run<I: Interface>(&self) -> Result<()> {
-        let interface_address =
-            Ipv4Net::with_netmask(self.config.address_tunnel, self.config.address_mask)?.into();
-
-        let interface = I::create(interface_address, self.config.connection.mtu)?;
+        let interface = I::create(
+            self.config.tunnel_network.into(),
+            self.config.connection.mtu,
+        )?;
         let auth_server = AuthServer::new(
             self.config.authentication.clone(),
+            self.config.tunnel_network.into(),
             self.address_pool.clone(),
             self.config.connection.connection_timeout,
         )?;

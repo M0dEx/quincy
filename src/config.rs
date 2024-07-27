@@ -1,8 +1,13 @@
+use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
+use crate::constants::{
+    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+};
 use anyhow::Result;
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
+use ipnet::{IpNet, Ipv4Net};
 use quinn::{
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
     EndpointConfig, TransportConfig,
@@ -12,18 +17,13 @@ use rustls::pki_types::CertificateDer;
 use rustls::RootCertStore;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-
-use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
-use crate::constants::{
-    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
-};
 use tracing::error;
 
-/// Represents the configuration for a Quincy server.
+/// Quincy server configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ServerConfig {
     /// The name of the tunnel
@@ -45,22 +45,21 @@ pub struct ServerConfig {
     /// Unsupported on Windows.
     #[serde(default = "default_false_fn")]
     pub reuse_socket: bool,
-    /// The address of this tunnel
-    pub address_tunnel: Ipv4Addr,
-    /// The address mask for this tunnel
-    pub address_mask: Ipv4Addr,
+    /// The network address of this tunnel (address + mask)
+    pub tunnel_network: Ipv4Net,
     /// Whether to isolate clients from each other (default = true)
     #[serde(default = "default_true_fn")]
     pub isolate_clients: bool,
     /// Authentication configuration
     pub authentication: ServerAuthenticationConfig,
     /// Miscellaneous connection configuration
+    #[serde(default)]
     pub connection: ConnectionConfig,
     /// Logging configuration
     pub log: LogConfig,
 }
 
-/// Represents the configuration for a Quincy server's authentication.
+/// Quincy server-side authentication configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ServerAuthenticationConfig {
     /// The type of authenticator to use (default = users_file)
@@ -70,20 +69,24 @@ pub struct ServerAuthenticationConfig {
     pub users_file: PathBuf,
 }
 
-/// Represents the configuration for a Quincy client.
+/// Quincy client configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientConfig {
     /// Connection string to be used to connect to a Quincy server
     pub connection_string: String,
     /// Authentication configuration
     pub authentication: ClientAuthenticationConfig,
-    /// Miscellaneous connection configuration
+    /// QUIC connection configuration
+    #[serde(default)]
     pub connection: ConnectionConfig,
+    /// Network configuration
+    #[serde(default)]
+    pub network: NetworkConfig,
     /// Logging configuration
     pub log: LogConfig,
 }
 
-/// Represents the configuration for a Quincy client's authentication.
+/// Quincy client-side authentication configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ClientAuthenticationConfig {
     /// The type of authenticator to use (default = users_file)
@@ -97,7 +100,7 @@ pub struct ClientAuthenticationConfig {
     pub trusted_certificates: Vec<PathBuf>,
 }
 
-/// Represents miscellaneous connection configuration.
+/// QUIC connection configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConnectionConfig {
     /// The MTU to use for connections and the TUN interface (default = 1400)
@@ -117,7 +120,23 @@ pub struct ConnectionConfig {
     pub recv_buffer_size: u64,
 }
 
-/// Represents logging configuration.
+/// Network configuration
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NetworkConfig {
+    /// Routes/networks to be routed through the tunnel
+    ///
+    /// In the format of `address/mask`, e.g.:
+    /// ```toml
+    /// routes = [
+    ///     "10.0.1.0/24",
+    ///     "10.11.12.0/24"
+    /// ]
+    /// ```
+    #[serde(default = "default_routes")]
+    pub routes: Vec<IpNet>,
+}
+
+/// Logging configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct LogConfig {
     /// The log level to use (default = info)
@@ -167,6 +186,26 @@ impl ConfigInit<ClientConfig> for ClientConfig {}
 impl FromPath<ServerConfig> for ServerConfig {}
 impl FromPath<ClientConfig> for ClientConfig {}
 
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            mtu: default_mtu(),
+            connection_timeout: default_timeout(),
+            keep_alive_interval: default_keep_alive_interval(),
+            send_buffer_size: default_buffer_size(),
+            recv_buffer_size: default_buffer_size(),
+        }
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            routes: default_routes(),
+        }
+    }
+}
+
 fn default_log_level() -> String {
     "info".to_string()
 }
@@ -197,6 +236,10 @@ fn default_keep_alive_interval() -> Duration {
 
 fn default_auth_type() -> AuthType {
     AuthType::UsersFile
+}
+
+fn default_routes() -> Vec<IpNet> {
+    Vec::new()
 }
 
 fn default_true_fn() -> bool {

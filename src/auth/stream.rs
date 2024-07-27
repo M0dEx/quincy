@@ -1,7 +1,8 @@
-use std::{net::IpAddr, time::Duration};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use bytes::BytesMut;
+use ipnet::IpNet;
 use quinn::{Connection, RecvStream, SendStream};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,8 +13,13 @@ use crate::constants::AUTH_MESSAGE_BUFFER_SIZE;
 /// Represents an authentication message sent between the client and the server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthMessage {
-    Authenticate(Value),
-    Authenticated(IpAddr, IpAddr),
+    Authenticate {
+        payload: Value,
+    },
+    Authenticated {
+        client_address: IpNet,
+        server_address: IpNet,
+    },
     Failed,
 }
 

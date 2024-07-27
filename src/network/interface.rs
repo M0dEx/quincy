@@ -1,9 +1,8 @@
 #![allow(async_fn_in_trait)]
-use std::net::IpAddr;
 
-use anyhow::{anyhow, Context, Result};
-use bytes::{Bytes, BytesMut};
-use etherparse::{NetHeaders, PacketHeaders};
+use crate::network::packet::Packet;
+use anyhow::Result;
+use bytes::BytesMut;
 use ipnet::IpNet;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun2::{AsyncDevice, Configuration};
@@ -21,7 +20,7 @@ pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Send + 'static {
 pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
     #[inline]
     async fn write_packet(&mut self, packet: &Packet) -> Result<()> {
-        self.write_all(&packet.0).await?;
+        self.write_all(&packet.data).await?;
 
         Ok(())
     }
@@ -66,42 +65,5 @@ impl Interface for AsyncDevice {
         let interface = tun2::create_as_async(&config)?;
 
         Ok(interface)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Packet(Bytes);
-
-impl Packet {
-    pub fn new(data: Bytes) -> Self {
-        Self(data)
-    }
-
-    pub fn destination(&self) -> Result<IpAddr> {
-        let headers = PacketHeaders::from_ip_slice(&self.0).context("failed to parse IP packet")?;
-        let net_header = headers.net.ok_or(anyhow!("no network header"))?;
-
-        match net_header {
-            NetHeaders::Ipv4(header, _) => Ok(header.destination.into()),
-            NetHeaders::Ipv6(header, _) => Ok(header.destination.into()),
-        }
-    }
-}
-
-impl From<BytesMut> for Packet {
-    fn from(data: BytesMut) -> Self {
-        Self::new(data.freeze())
-    }
-}
-
-impl From<Bytes> for Packet {
-    fn from(data: Bytes) -> Self {
-        Self::new(data)
-    }
-}
-
-impl From<Packet> for Bytes {
-    fn from(packet: Packet) -> Self {
-        packet.0
     }
 }

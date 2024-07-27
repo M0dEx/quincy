@@ -10,7 +10,9 @@ use quinn::{Connection, Endpoint, VarInt};
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
-use crate::interface::{Interface, InterfaceRead, InterfaceWrite, Packet};
+use crate::network::interface::{Interface, InterfaceRead, InterfaceWrite};
+use crate::network::packet::Packet;
+use crate::network::route::add_route;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -39,13 +41,18 @@ impl QuincyClient {
             self.config.connection.connection_timeout,
         )?;
 
-        let assigned_address = auth_client.authenticate(&connection).await?;
+        let (client_address, server_address) = auth_client.authenticate(&connection).await?;
 
         info!("Successfully authenticated");
-        info!("Received client address: {assigned_address}");
+        info!("Received client address: {client_address}");
+        info!("Received server address: {server_address}");
 
         let mtu = self.config.connection.mtu;
-        let interface = I::create(assigned_address, mtu)?;
+        let interface = I::create(client_address, mtu)?;
+
+        for route in &self.config.network.routes {
+            add_route(route, &server_address.addr())?
+        }
 
         self.relay_packets(connection, interface, mtu as usize)
             .await
@@ -95,6 +102,9 @@ impl QuincyClient {
     }
 
     /// Creates a Quinn endpoint.
+    ///
+    /// ### Arguments
+    /// - `remote_address` - the remote address to connect to
     ///
     /// ### Returns
     /// - `Endpoint` - the Quinn endpoint

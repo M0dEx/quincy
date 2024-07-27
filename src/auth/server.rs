@@ -18,6 +18,7 @@ use super::{
 /// Represents an authentication server handling initial authentication and session management.
 pub struct AuthServer {
     authenticator: Box<dyn ServerAuthenticator>,
+    server_address: IpNet,
     address_pool: Arc<AddressPool>,
     auth_timeout: Duration,
 }
@@ -25,6 +26,7 @@ pub struct AuthServer {
 impl AuthServer {
     pub fn new(
         config: ServerAuthenticationConfig,
+        server_address: IpNet,
         address_pool: Arc<AddressPool>,
         auth_timeout: Duration,
     ) -> Result<Self> {
@@ -34,6 +36,7 @@ impl AuthServer {
 
         Ok(Self {
             authenticator: Box::new(authenticator),
+            server_address,
             address_pool,
             auth_timeout,
         })
@@ -52,20 +55,20 @@ impl AuthServer {
         let message = timeout(self.auth_timeout, auth_stream.recv_message()).await??;
 
         let auth_result = match message {
-            AuthMessage::Authenticate(payload) => {
-                let (username, address) = self
+            AuthMessage::Authenticate { payload } => {
+                let (username, client_address) = self
                     .authenticator
                     .authenticate_user(&self.address_pool, payload)
                     .await?;
 
                 auth_stream
-                    .send_message(AuthMessage::Authenticated(
-                        address.addr(),
-                        address.netmask(),
-                    ))
+                    .send_message(AuthMessage::Authenticated {
+                        client_address,
+                        server_address: self.server_address,
+                    })
                     .await?;
 
-                Ok((username, address))
+                Ok((username, client_address))
             }
             _ => Err(anyhow!("authentication failed")),
         }?;
