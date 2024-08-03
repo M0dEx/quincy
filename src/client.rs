@@ -10,9 +10,10 @@ use quinn::{Connection, Endpoint, VarInt};
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
+use crate::network::dns::{add_dns_servers, delete_dns_servers};
 use crate::network::interface::{Interface, InterfaceRead, InterfaceWrite};
 use crate::network::packet::Packet;
-use crate::network::route::add_route;
+use crate::network::route::add_routes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -49,13 +50,36 @@ impl QuincyClient {
 
         let mtu = self.config.connection.mtu;
         let interface = I::create(client_address, mtu)?;
+        let interface_name = interface.name()?;
 
-        for route in &self.config.network.routes {
-            add_route(route, &server_address.addr())?
+        info!("Created interface: {interface_name}");
+
+        let routes = &self.config.network.routes;
+        let dns_servers = &self.config.network.dns_servers;
+
+        if !routes.is_empty() {
+            add_routes(routes, &server_address.addr())?;
+            for route in routes {
+                info!("Added route: {route}");
+            }
         }
 
-        self.relay_packets(connection, interface, mtu as usize)
-            .await
+        if !dns_servers.is_empty() {
+            add_dns_servers(dns_servers, &interface_name)?;
+            for dns_server in dns_servers {
+                info!("Added DNS server: {dns_server}");
+            }
+        }
+
+        let relay_result = self
+            .relay_packets(connection, interface, mtu as usize)
+            .await;
+
+        if !dns_servers.is_empty() {
+            delete_dns_servers()?;
+        }
+
+        relay_result
     }
 
     /// Connects to the Quincy server.

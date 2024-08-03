@@ -898,7 +898,6 @@ dependencies = [
  "futures",
  "ipnet",
  "jemallocator",
- "libc",
  "nu-ansi-term 0.50.1",
  "once_cell",
  "quinn",
