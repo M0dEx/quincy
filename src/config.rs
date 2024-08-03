@@ -134,6 +134,16 @@ pub struct NetworkConfig {
     /// ```
     #[serde(default = "default_routes")]
     pub routes: Vec<IpNet>,
+    /// DNS servers to use for the tunnel
+    ///
+    /// In the format of `address`, e.g.:
+    /// ```toml
+    /// dns_servers = [
+    ///     "10.0.1.1",
+    /// ]
+    /// ```
+    #[serde(default = "default_dns_servers")]
+    pub dns_servers: Vec<IpAddr>,
 }
 
 /// Logging configuration
@@ -202,6 +212,7 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             routes: default_routes(),
+            dns_servers: default_dns_servers(),
         }
     }
 }
@@ -239,6 +250,10 @@ fn default_auth_type() -> AuthType {
 }
 
 fn default_routes() -> Vec<IpNet> {
+    Vec::new()
+}
+
+fn default_dns_servers() -> Vec<IpAddr> {
     Vec::new()
 }
 

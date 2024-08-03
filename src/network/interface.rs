@@ -1,11 +1,11 @@
 #![allow(async_fn_in_trait)]
 
 use crate::network::packet::Packet;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tun2::{AsyncDevice, Configuration};
+use tun2::{AbstractDevice, AsyncDevice, Configuration};
 
 pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Send + 'static {
     #[inline]
@@ -39,6 +39,10 @@ pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
 pub trait Interface: InterfaceRead + InterfaceWrite {
     fn create(interface_address: IpNet, mtu: u16) -> Result<Self>;
 
+    fn mtu(&self) -> Result<u16>;
+
+    fn name(&self) -> Result<String>;
+
     fn split(self) -> (ReadHalf<Self>, WriteHalf<Self>) {
         tokio::io::split(self)
     }
@@ -65,5 +69,17 @@ impl Interface for AsyncDevice {
         let interface = tun2::create_as_async(&config)?;
 
         Ok(interface)
+    }
+
+    fn mtu(&self) -> Result<u16> {
+        self.as_ref()
+            .mtu()
+            .context("failed to retrieve interface MTU")
+    }
+
+    fn name(&self) -> Result<String> {
+        self.as_ref()
+            .tun_name()
+            .context("failed to retrieve interface name")
     }
 }

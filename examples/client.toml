@@ -18,6 +18,9 @@ routes = [
     "10.0.1.0/24",
     "10.11.12.0/24"
 ]
+dns_servers = [
+    "10.0.0.1"
+]
 
 [log]
 # The log level

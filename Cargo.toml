@@ -10,7 +10,7 @@ repository = "https://github.com/M0dEx/quincy"
 keywords = ["vpn", "quic", "tunnel", "networking", "tokio"]
 categories = ["command-line-utilities", "network-programming"]
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.80"
 
 [[bin]]
 name = "quincy-client"
@@ -43,7 +43,6 @@ socket2 = "^0.5.2"
 bytes = "^1.4"
 etherparse = "^0.15.0"
 ipnet = { version = "^2.7", features = ["serde"] }
-libc = "^0.2.147"
 
 # Tokio
 tokio = { version = "^1.25", features = [

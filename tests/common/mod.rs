@@ -111,6 +111,14 @@ macro_rules! interface_impl {
                     $test_queue_recv.1.clone(),
                 ))
             }
+
+            fn mtu(&self) -> Result<u16> {
+                Ok(1400)
+            }
+
+            fn name(&self) -> Result<String> {
+                Ok("test".to_owned())
+            }
         }
     };
 }
