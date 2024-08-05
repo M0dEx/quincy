@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use crate::utils::command::run_command;
+use anyhow::{anyhow, Result};
 use ipnet::IpNet;
 use std::net::IpAddr;
-use std::process::Command;
 
 #[cfg(target_os = "linux")]
 const ROUTE_ADD_COMMAND: &str = "route add -net {network} netmask {netmask} gw {gateway}";
@@ -12,11 +12,24 @@ const ROUTE_ADD_COMMAND: &str = "route -n add -net {network} -netmask {netmask} 
 #[cfg(target_os = "freebsd")]
 const ROUTE_ADD_COMMAND: &str = "route add -net {network} -netmask {netmask} {gateway}";
 
+/// Adds a list of routes to the routing table.
+///
+/// ### Arguments
+/// - `networks` - the networks to be routed through the gateway
+/// - `gateway` - the gateway to be used for the routes
+pub fn add_routes(networks: &[IpNet], gateway: &IpAddr) -> Result<()> {
+    for network in networks {
+        add_route(network, gateway)?;
+    }
+
+    Ok(())
+}
+
 /// Adds a route to the routing table.
 ///
 /// ### Arguments
-/// - `network` - the network to add the route for
-/// - `gateway` - the gateway to use for the route
+/// - `network` - the network to be routed through the gateway
+/// - `gateway` - the gateway to be used for the route
 pub fn add_route(network: &IpNet, gateway: &IpAddr) -> Result<()> {
     let route_add_command = ROUTE_ADD_COMMAND
         .replace("{network}", &network.addr().to_string())
@@ -28,10 +41,7 @@ pub fn add_route(network: &IpNet, gateway: &IpAddr) -> Result<()> {
     let route_program = route_command_split[0];
     let route_args = &route_command_split[1..];
 
-    let output = Command::new(route_program)
-        .args(route_args)
-        .output()
-        .context("failed to execute route command")?;
+    let output = run_command(route_program, route_args)?.wait_with_output()?;
 
     if !output.status.success() {
         return Err(anyhow!(

@@ -1,0 +1,51 @@
+use crate::utils::command::run_command;
+use anyhow::{anyhow, Context, Result};
+use std::io::Write;
+use std::net::IpAddr;
+
+const RESOLVCONF_COMMAND: &str = "resolvconf";
+
+/// Adds a list of DNS servers to the given interface.
+///
+/// ### Arguments
+/// - `dns_servers` - the DNS servers to be added
+/// - `interface_name` - the name of the interface to add the DNS servers to
+pub fn add_dns_servers(dns_servers: &[IpAddr], interface_name: &str) -> Result<()> {
+    let set_args = ["-a", interface_name, "-x"];
+    let input = dns_servers
+        .iter()
+        .map(|ip| format!("nameserver {ip}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut process = run_command(RESOLVCONF_COMMAND, set_args)?;
+    let mut process_in = process
+        .stdin
+        .take()
+        .ok_or(anyhow!("failed to open stdin"))?;
+
+    process_in
+        .write_all(input.as_bytes())
+        .context("failed to write to stdin")?;
+    let output = process
+        .wait_with_output()
+        .context("failed to wait for process to exit")?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "failed to add DNS servers: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(())
+}
+
+/// Deletes all DNS servers from the given interface.
+///
+/// No-op on Linux/FreeBSD.
+pub fn delete_dns_servers() -> Result<()> {
+    // This is a no-op on Linux and FreeBSD as the interface is deleted when the process exits
+    // along with its routes and DNS servers
+    Ok(())
+}
