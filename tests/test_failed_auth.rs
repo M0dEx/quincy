@@ -4,13 +4,13 @@ use crate::common::{
 };
 use anyhow::Result;
 use ipnet::IpNet;
-use once_cell::sync::Lazy;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, ServerConfig};
 use quincy::network::interface::Interface;
 use quincy::server::QuincyServer;
 use rstest::rstest;
 use std::net::Ipv4Addr;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing_test::traced_test;
@@ -22,10 +22,10 @@ type ClientInterface = TestInterface<Client>;
 struct Server;
 type ServerInterface = TestInterface<Server>;
 
-pub static TEST_QUEUE_CLIENT_SEND: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_CLIENT_RECV: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_SERVER_SEND: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_SERVER_RECV: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_SERVER_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_SERVER_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 
 interface_impl!(
     ClientInterface,

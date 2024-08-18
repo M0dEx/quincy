@@ -1,6 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use etherparse::PacketBuilder;
-use once_cell::sync::Lazy;
 use quincy::config::{ClientConfig, FromPath, ServerConfig};
 use quincy::network::interface::{InterfaceRead, InterfaceWrite};
 use rstest::fixture;
@@ -8,7 +7,7 @@ use std::io::Error;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -94,8 +93,8 @@ pub fn server_config() -> ServerConfig {
     ServerConfig::from_path(Path::new("tests/static/server.toml"), "QUINCY").unwrap()
 }
 
-pub const fn make_queue_pair() -> Lazy<(TestSender, TestReceiver)> {
-    Lazy::new(|| {
+pub const fn make_queue_pair() -> LazyLock<(TestSender, TestReceiver)> {
+    LazyLock::new(|| {
         let (tx, rx) = mpsc::unbounded_channel();
         (Arc::new(Mutex::new(tx)), Arc::new(Mutex::new(rx)))
     })

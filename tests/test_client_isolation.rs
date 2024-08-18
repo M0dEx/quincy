@@ -1,12 +1,9 @@
-use std::{net::Ipv4Addr, time::Duration};
-
 use crate::common::dummy_packet;
 use anyhow::Result;
 use common::{
     client_config, make_queue_pair, server_config, TestInterface, TestReceiver, TestSender,
 };
 use ipnet::IpNet;
-use once_cell::sync::Lazy;
 use quincy::network::interface::Interface;
 use quincy::{
     client::QuincyClient,
@@ -14,6 +11,8 @@ use quincy::{
     server::QuincyServer,
 };
 use rstest::rstest;
+use std::sync::LazyLock;
+use std::{net::Ipv4Addr, time::Duration};
 use tokio::time::timeout;
 
 mod common;
@@ -25,12 +24,12 @@ type ClientBInterface = TestInterface<ClientB>;
 struct Server;
 type ServerInterface = TestInterface<Server>;
 
-pub static TEST_QUEUE_CLIENT_A_SEND: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_CLIENT_A_RECV: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_CLIENT_B_SEND: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_CLIENT_B_RECV: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_SERVER_SEND: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
-pub static TEST_QUEUE_SERVER_RECV: Lazy<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_A_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_A_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_B_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_CLIENT_B_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_SERVER_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
+pub static TEST_QUEUE_SERVER_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 
 interface_impl!(
     ClientAInterface,
