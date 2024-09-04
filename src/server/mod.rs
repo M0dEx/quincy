@@ -50,7 +50,7 @@ impl QuincyServer {
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
     pub async fn run<I: Interface>(&self) -> Result<()> {
-        let interface = I::create(
+        let interface = I::create_server(
             self.config.tunnel_network.into(),
             self.config.connection.mtu,
         )?;

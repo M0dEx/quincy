@@ -104,15 +104,24 @@ pub const fn make_queue_pair() -> LazyLock<(TestSender, TestReceiver)> {
 macro_rules! interface_impl {
     ($name:ident, $test_queue_send:ident, $test_queue_recv:ident) => {
         impl Interface for $name {
-            fn create(_interface_address: IpNet, _mtu: u16) -> Result<Self> {
+            fn create_server(_interface_address: IpNet, _mtu: u16) -> Result<Self> {
                 Ok(Self::new(
                     $test_queue_send.0.clone(),
                     $test_queue_recv.1.clone(),
                 ))
             }
 
-            fn mtu(&self) -> Result<u16> {
-                Ok(1400)
+            fn create_client(
+                _interface_address: IpNet,
+                _tunnel_gateway: IpAddr,
+                _mtu: u16,
+                _routes: &[IpNet],
+                _dns_servers: &[IpAddr],
+            ) -> Result<Self> {
+                Ok(Self::new(
+                    $test_queue_send.0.clone(),
+                    $test_queue_recv.1.clone(),
+                ))
             }
 
             fn name(&self) -> Result<String> {

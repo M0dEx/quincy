@@ -1,9 +1,11 @@
 #![allow(async_fn_in_trait)]
 
 use crate::network::packet::Packet;
+use crate::network::route::add_routes;
 use anyhow::{Context, Result};
 use bytes::BytesMut;
 use ipnet::IpNet;
+use std::net::IpAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun2::{AbstractDevice, AsyncDevice, Configuration};
 
@@ -37,9 +39,15 @@ pub trait InterfaceWrite: AsyncWriteExt + Sized + Unpin + Send + 'static {
 }
 
 pub trait Interface: InterfaceRead + InterfaceWrite {
-    fn create(interface_address: IpNet, mtu: u16) -> Result<Self>;
+    fn create_server(interface_address: IpNet, mtu: u16) -> Result<Self>;
 
-    fn mtu(&self) -> Result<u16>;
+    fn create_client(
+        interface_address: IpNet,
+        tunnel_gateway: IpAddr,
+        mtu: u16,
+        routes: &[IpNet],
+        dns_servers: &[IpAddr],
+    ) -> Result<Self>;
 
     fn name(&self) -> Result<String>;
 
@@ -53,7 +61,28 @@ impl<I: Interface> InterfaceWrite for WriteHalf<I> {}
 impl InterfaceRead for AsyncDevice {}
 impl InterfaceWrite for AsyncDevice {}
 impl Interface for AsyncDevice {
-    fn create(interface_address: IpNet, mtu: u16) -> Result<AsyncDevice> {
+    fn create_server(interface_address: IpNet, mtu: u16) -> Result<Self> {
+        let mut config = Configuration::default();
+
+        config
+            .address(interface_address.addr())
+            .netmask(interface_address.netmask())
+            .destination(interface_address.network())
+            .mtu(mtu)
+            .up();
+
+        let interface = tun2::create_as_async(&config)?;
+
+        Ok(interface)
+    }
+
+    fn create_client(
+        interface_address: IpNet,
+        tunnel_gateway: IpAddr,
+        mtu: u16,
+        routes: &[IpNet],
+        dns_servers: &[IpAddr],
+    ) -> Result<Self> {
         let mut config = Configuration::default();
 
         config
@@ -62,24 +91,28 @@ impl Interface for AsyncDevice {
             .mtu(mtu)
             .up();
 
-        // Needed due to rust-tun using the destination address as the default GW
         #[cfg(not(target_os = "windows"))]
-        config.destination(interface_address.network());
+        config.destination(tunnel_gateway);
+
+        #[cfg(target_os = "windows")]
+        config.platform_config(|platform| {
+            platform.dns_servers(dns_servers);
+        });
 
         let interface = tun2::create_as_async(&config)?;
+
+        add_routes(routes, &interface_address.addr())?;
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            use crate::network::dns::add_dns_servers;
+            add_dns_servers(dns_servers, &interface.tun_name()?)?;
+        }
 
         Ok(interface)
     }
 
-    fn mtu(&self) -> Result<u16> {
-        self.as_ref()
-            .mtu()
-            .context("failed to retrieve interface MTU")
-    }
-
     fn name(&self) -> Result<String> {
-        self.as_ref()
-            .tun_name()
-            .context("failed to retrieve interface name")
+        self.tun_name().context("failed to retrieve interface name")
     }
 }

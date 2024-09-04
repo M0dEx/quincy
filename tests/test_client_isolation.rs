@@ -11,6 +11,7 @@ use quincy::{
     server::QuincyServer,
 };
 use rstest::rstest;
+use std::net::IpAddr;
 use std::sync::LazyLock;
 use std::{net::Ipv4Addr, time::Duration};
 use tokio::time::timeout;
