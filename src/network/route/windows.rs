@@ -3,23 +3,18 @@ use anyhow::{anyhow, Result};
 use ipnet::IpNet;
 use std::net::IpAddr;
 
-#[cfg(target_os = "linux")]
-const ROUTE_ADD_COMMAND: &str = "route add -net {network} netmask {netmask} gw {gateway}";
-#[cfg(target_os = "windows")]
-const ROUTE_ADD_COMMAND: &str = "route add {network} mask {netmask} {gateway}";
-#[cfg(target_os = "macos")]
-const ROUTE_ADD_COMMAND: &str = "route -n add -net {network} -netmask {netmask} {gateway}";
-#[cfg(target_os = "freebsd")]
-const ROUTE_ADD_COMMAND: &str = "route add -net {network} -netmask {netmask} {gateway}";
+const NETSH_ROUTE_ADD_COMMAND: &str =
+    "netsh interface ip add route {network} \"{interface_name}\" {gateway} store=active";
 
 /// Adds a list of routes to the routing table.
 ///
 /// ### Arguments
 /// - `networks` - the networks to be routed through the gateway
 /// - `gateway` - the gateway to be used for the routes
-pub fn add_routes(networks: &[IpNet], gateway: &IpAddr) -> Result<()> {
+/// - `interface_name` - the name of the interface to add the routes to
+pub fn add_routes(networks: &[IpNet], gateway: &IpAddr, interface_name: &str) -> Result<()> {
     for network in networks {
-        add_route(network, gateway)?;
+        add_route(network, gateway, interface_name)?;
     }
 
     Ok(())
@@ -30,10 +25,11 @@ pub fn add_routes(networks: &[IpNet], gateway: &IpAddr) -> Result<()> {
 /// ### Arguments
 /// - `network` - the network to be routed through the gateway
 /// - `gateway` - the gateway to be used for the route
-pub fn add_route(network: &IpNet, gateway: &IpAddr) -> Result<()> {
-    let route_add_command = ROUTE_ADD_COMMAND
-        .replace("{network}", &network.addr().to_string())
-        .replace("{netmask}", &network.netmask().to_string())
+/// - `interface_name` - the name of the interface to add the route to
+fn add_route(network: &IpNet, gateway: &IpAddr, interface_name: &str) -> Result<()> {
+    let route_add_command = NETSH_ROUTE_ADD_COMMAND
+        .replace("{network}", &network.to_string())
+        .replace("{interface_name}", interface_name)
         .replace("{gateway}", &gateway.to_string());
 
     let route_command_split = route_add_command.split(" ").collect::<Vec<_>>();

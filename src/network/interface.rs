@@ -101,7 +101,7 @@ impl Interface for AsyncDevice {
 
         let interface = tun2::create_as_async(&config)?;
 
-        add_routes(routes, &interface_address.addr())?;
+        add_routes(routes, &tunnel_gateway, &interface.tun_name()?)?;
 
         #[cfg(not(target_os = "windows"))]
         {
