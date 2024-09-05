@@ -104,7 +104,7 @@ impl Interface for AsyncDevice {
         add_routes(routes, &tunnel_gateway, &interface.tun_name()?)?;
 
         #[cfg(not(target_os = "windows"))]
-        {
+        if !dns_servers.is_empty() {
             use crate::network::dns::add_dns_servers;
             add_dns_servers(dns_servers, &interface.tun_name()?)?;
         }
