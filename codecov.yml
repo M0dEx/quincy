@@ -1,3 +1,5 @@
 ignore:
   # Ignore all app entrypoints because they are not unit/integration tested
   - "src/bin"
+  # Ignore all network related code because it cannot be unit/integration tested in CI
+  - "src/network"

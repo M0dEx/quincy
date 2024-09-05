@@ -12,7 +12,6 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
 use crate::network::interface::{Interface, InterfaceRead, InterfaceWrite};
 use crate::network::packet::Packet;
-use crate::network::route::add_route;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -47,15 +46,33 @@ impl QuincyClient {
         info!("Received client address: {client_address}");
         info!("Received server address: {server_address}");
 
+        let routes = &self.config.network.routes;
+        let dns_servers = &self.config.network.dns_servers;
         let mtu = self.config.connection.mtu;
-        let interface = I::create(client_address, mtu)?;
+        let interface = I::create_client(
+            client_address,
+            server_address.addr(),
+            mtu,
+            routes,
+            dns_servers,
+        )?;
+        let interface_name = interface.name()?;
 
-        for route in &self.config.network.routes {
-            add_route(route, &server_address.addr())?
+        info!("Created interface: {interface_name}");
+        info!("Added routes: {routes:?}");
+        info!("Set DNS servers: {dns_servers:?}");
+
+        let relay_result = self
+            .relay_packets(connection, interface, mtu as usize)
+            .await;
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            use crate::network::dns::delete_dns_servers;
+            delete_dns_servers()?;
         }
 
-        self.relay_packets(connection, interface, mtu as usize)
-            .await
+        relay_result
     }
 
     /// Connects to the Quincy server.

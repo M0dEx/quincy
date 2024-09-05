@@ -1,6 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use etherparse::PacketBuilder;
-use once_cell::sync::Lazy;
 use quincy::config::{ClientConfig, FromPath, ServerConfig};
 use quincy::network::interface::{InterfaceRead, InterfaceWrite};
 use rstest::fixture;
@@ -8,7 +7,7 @@ use std::io::Error;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -94,8 +93,8 @@ pub fn server_config() -> ServerConfig {
     ServerConfig::from_path(Path::new("tests/static/server.toml"), "QUINCY").unwrap()
 }
 
-pub const fn make_queue_pair() -> Lazy<(TestSender, TestReceiver)> {
-    Lazy::new(|| {
+pub const fn make_queue_pair() -> LazyLock<(TestSender, TestReceiver)> {
+    LazyLock::new(|| {
         let (tx, rx) = mpsc::unbounded_channel();
         (Arc::new(Mutex::new(tx)), Arc::new(Mutex::new(rx)))
     })
@@ -105,11 +104,28 @@ pub const fn make_queue_pair() -> Lazy<(TestSender, TestReceiver)> {
 macro_rules! interface_impl {
     ($name:ident, $test_queue_send:ident, $test_queue_recv:ident) => {
         impl Interface for $name {
-            fn create(_interface_address: IpNet, _mtu: u16) -> Result<Self> {
+            fn create_server(_interface_address: IpNet, _mtu: u16) -> Result<Self> {
                 Ok(Self::new(
                     $test_queue_send.0.clone(),
                     $test_queue_recv.1.clone(),
                 ))
+            }
+
+            fn create_client(
+                _interface_address: IpNet,
+                _tunnel_gateway: IpAddr,
+                _mtu: u16,
+                _routes: &[IpNet],
+                _dns_servers: &[IpAddr],
+            ) -> Result<Self> {
+                Ok(Self::new(
+                    $test_queue_send.0.clone(),
+                    $test_queue_recv.1.clone(),
+                ))
+            }
+
+            fn name(&self) -> Result<String> {
+                Ok("test".to_owned())
             }
         }
     };
