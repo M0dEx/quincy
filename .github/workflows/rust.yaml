@@ -19,6 +19,9 @@ jobs:
         name: Checkout repository
       - uses: dtolnay/rust-toolchain@stable
         name: Set up toolchain
+      - if: contains(matrix.os, 'windows')
+        uses: ilammy/setup-nasm@v1
+        name: Install NASM
       - uses: taiki-e/install-action@cargo-llvm-cov
         name: Install cargo llvm-cov
       - uses: Swatinem/rust-cache@v2
