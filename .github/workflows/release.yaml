@@ -55,7 +55,7 @@ jobs:
   build-macos-binaries:
     name: Build arm64 macOS binaries
 
-    runs-on: macos-13
+    runs-on: macos-latest
 
     permissions:
       contents: write
@@ -96,6 +96,8 @@ jobs:
         name: Set up toolchain
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
+      - uses: ilammy/setup-nasm@v1
+        name: Install NASM
       - name: Build x86_64 Windows binaries
         run: |
           cargo build --release

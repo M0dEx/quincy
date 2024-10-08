@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
 use quinn::Runtime;
-use rustls::crypto::{ring, CryptoProvider};
+use rustls::crypto::CryptoProvider;
 use rustls::CipherSuite;
 
 /// Represents the maximum MTU overhead for QUIC, since the QUIC header is variable in size.
@@ -28,14 +28,38 @@ pub static QUINN_RUNTIME: LazyLock<Arc<dyn Runtime>> =
 
 /// Represents the crypto provider used by Quincy.
 pub static CRYPTO_PROVIDER: LazyLock<Arc<CryptoProvider>> = LazyLock::new(|| {
-    let mut provider = ring::default_provider();
+    #[cfg(all(feature = "crypto-standard", not(feature = "crypto-quantum")))]
+    let mut default_provider = {
+        use rustls::crypto::ring;
+        ring::default_provider()
+    };
+    #[cfg(all(feature = "crypto-quantum", not(feature = "crypto-standard")))]
+    let mut default_provider = {
+        use rustls::crypto::aws_lc_rs;
+        aws_lc_rs::default_provider()
+    };
 
-    provider.cipher_suites.retain(|suite| {
+    // Only support the most secure cipher suites from TLS 1.3
+    default_provider.cipher_suites.retain(|suite| {
         matches!(
             suite.suite(),
             CipherSuite::TLS13_AES_256_GCM_SHA384 | CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
         )
     });
+
+    #[cfg(all(feature = "crypto-standard", not(feature = "crypto-quantum")))]
+    let provider = default_provider;
+
+    #[cfg(all(feature = "crypto-quantum", not(feature = "crypto-standard")))]
+    let provider = {
+        use rustls_post_quantum::X25519Kyber768Draft00;
+
+        // Use the post-quantum-secure KX algorithm
+        CryptoProvider {
+            kx_groups: vec![&X25519Kyber768Draft00],
+            ..default_provider
+        }
+    };
 
     Arc::new(provider)
 });
