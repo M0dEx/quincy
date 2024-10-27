@@ -19,14 +19,15 @@ pub fn add_dns_servers(dns_servers: &[IpAddr], interface_name: &str) -> Result<(
         .join("\n");
 
     let mut process = run_command(RESOLVCONF_COMMAND, set_args)?;
-    let mut process_in = process
-        .stdin
-        .take()
-        .ok_or(anyhow!("failed to open stdin"))?;
 
-    process_in
-        .write_all(input.as_bytes())
-        .context("failed to write to stdin")?;
+    if let Some(mut stdin) = process.stdin.take() {
+        stdin
+            .write_all(input.as_bytes())
+            .context("failed to write to stdin")?;
+    } else {
+        return Err(anyhow!("failed to open stdin"));
+    }
+
     let output = process
         .wait_with_output()
         .context("failed to wait for process to exit")?;
