@@ -52,6 +52,13 @@ To enable it, add the `--features jemalloc` switch to the `build`/`install` comm
 cargo build --release --features jemalloc
 ```
 
+## Optional features
+- `jemalloc`: Uses the jemalloc memory allocator on UNIX systems for improved performance [default: **disabled**]
+- `post-quantum`: Uses post-quantum cryptography for key exchange (`X25519Kyber768Draft00`) [default: **disabled**]
+  - requires the `aws-lc-rs` crypto backend, which requires some build dependencies to be installed (Clang/GCC and CMake)
+  - the algorithm has not been standardized yet and is not recommended for production use
+  - both the client and server have to be compiled with this feature enabled, otherwise the connection will not be established
+
 ## Usage
 Quincy is split into 3 binaries:
 - `quincy-client`: The VPN client
