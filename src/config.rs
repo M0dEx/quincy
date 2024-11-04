@@ -13,7 +13,6 @@ use quinn::{
     EndpointConfig, TransportConfig,
 };
 use rustls::crypto::ring::cipher_suite::TLS13_AES_128_GCM_SHA256;
-use rustls::pki_types::CertificateDer;
 use rustls::RootCertStore;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -21,7 +20,6 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::error;
 
 /// Quincy server configuration
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -178,7 +176,8 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
     fn from_path(path: &Path, env_prefix: &str) -> Result<T> {
         if !path.exists() {
             return Err(anyhow::anyhow!(
-                "configuration file {path:?} does not exist or cannot be read"
+                "failed to load configuration file '{}'",
+                path.display()
             ));
         }
 
@@ -271,25 +270,16 @@ impl ClientConfig {
     /// ### Returns
     /// - `quinn::ClientConfig` - the Quinn client configuration
     pub fn as_quinn_client_config(&self) -> Result<quinn::ClientConfig> {
-        let trusted_certificates: Vec<CertificateDer> = self
-            .authentication
-            .trusted_certificates
-            .iter()
-            .filter_map(|cert_path| match load_certificates_from_file(cert_path) {
-                Ok(certificates) => Some(certificates),
-                Err(e) => {
-                    error!("Could not load certificates from {cert_path:?} due to an error: {e}");
-                    None
-                }
-            })
-            .flatten()
-            .collect();
-
         let mut cert_store = RootCertStore::empty();
 
-        for certificate in trusted_certificates {
-            cert_store.add(certificate)?;
-        }
+        self.authentication
+            .trusted_certificates
+            .iter()
+            .map(|cert_path| {
+                load_certificates_from_file(cert_path)
+                    .map(|certs| cert_store.add_parsable_certificates(certs))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let mut rustls_config =
             rustls::ClientConfig::builder_with_provider(CRYPTO_PROVIDER.clone())

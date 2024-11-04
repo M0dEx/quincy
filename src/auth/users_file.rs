@@ -47,7 +47,10 @@ pub struct User {
 
 impl UsersFileServerAuthenticator {
     pub fn new(config: &ServerAuthenticationConfig) -> Result<Self> {
-        let users_file = load_users_file(&config.users_file)?;
+        let users_file = load_users_file(&config.users_file).context(format!(
+            "failed to load users file '{}'",
+            config.users_file.display()
+        ))?;
         let user_database = UserDatabase::new(users_file);
 
         Ok(Self { user_database })
