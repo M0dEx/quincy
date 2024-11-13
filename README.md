@@ -46,10 +46,26 @@ cargo build --release
 ```
 The resulting binaries can be found in the `target/debug` and `target/release` directories.
 
-Quincy can optionally use the [jemalloc](https://jemalloc.net/) memory allocator for slightly improved performance. 
+## Build features
+- `jemalloc`: Uses the jemalloc memory allocator on UNIX systems for improved performance [default: **disabled**]
+- `crypto-standard`: Uses the `ring` crate for pre-quantum cryptographic operations [default: **enabled**]
+- `crypto-quantum`: Uses post-quantum cryptography for key exchange (`X25519Kyber768Draft00`) [default: **disabled**]
+  - requires the `aws-lc-rs` crypto backend, which requires some build dependencies to be installed (Clang/GCC and CMake)
+  - the algorithm has not been standardized yet and is not recommended for production use
+  - both the client and server have to be compiled with this feature enabled, otherwise the connection will not be established
+
+### Jemalloc
+Quincy can optionally use the [jemalloc](https://jemalloc.net/) memory allocator for slightly improved performance.
 To enable it, add the `--features jemalloc` switch to the `build`/`install` command:
 ```bash
 cargo build --release --features jemalloc
+```
+
+### Post-quantum key-exchange
+Quincy can optionally use post-quantum cryptography for key exchange.
+To enable it, add the `--features crypto-quantum` switch to the `build`/`install` command:
+```bash
+cargo build --release --no-default-features --features crypto-quantum
 ```
 
 ## Usage

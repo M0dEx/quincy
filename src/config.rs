@@ -1,6 +1,7 @@
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::constants::{
-    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_PROTOCOL_VERSIONS,
+    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_INITIAL_CIPHER_SUITE,
+    TLS_PROTOCOL_VERSIONS,
 };
 use anyhow::Result;
 use figment::{
@@ -12,7 +13,6 @@ use quinn::{
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
     EndpointConfig, TransportConfig,
 };
-use rustls::crypto::ring::cipher_suite::TLS13_AES_128_GCM_SHA256;
 use rustls::RootCertStore;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -291,7 +291,7 @@ impl ClientConfig {
 
         let quic_client_config = QuicClientConfig::with_initial(
             rustls_config.into(),
-            TLS13_AES_128_GCM_SHA256
+            TLS_INITIAL_CIPHER_SUITE
                 .tls13()
                 .expect("QUIC initial suite is a valid TLS 1.3 suite")
                 .quic_suite()
@@ -337,7 +337,7 @@ impl ServerConfig {
 
         let quic_server_config = QuicServerConfig::with_initial(
             rustls_config.into(),
-            TLS13_AES_128_GCM_SHA256
+            TLS_INITIAL_CIPHER_SUITE
                 .tls13()
                 .expect("QUIC initial suite is a valid TLS 1.3 suite")
                 .quic_suite()

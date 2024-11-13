@@ -7,7 +7,7 @@ username = "test"
 # The password used for authentication
 password = "test"
 # A list of trusted certificates the server can use or have its certificate signed by
-trusted_certificates = ["examples/cert/ca_cert.pem"]
+trusted_certificates = ["examples/cert/server_cert.pem"]
 
 [connection]
 # The MTU used by the QUIC tunnel and the spawned TUN interface
