@@ -71,7 +71,8 @@ impl Interface for AsyncDevice {
             .mtu(mtu)
             .up();
 
-        let interface = tun2::create_as_async(&config)?;
+        let interface =
+            tun2::create_as_async(&config).context("failed to create a TUN interface")?;
 
         Ok(interface)
     }
@@ -99,7 +100,8 @@ impl Interface for AsyncDevice {
             platform.dns_servers(dns_servers);
         });
 
-        let interface = tun2::create_as_async(&config)?;
+        let interface =
+            tun2::create_as_async(&config).context("failed to create a TUN interface")?;
 
         add_routes(routes, &tunnel_gateway, &interface.tun_name()?)?;
 
