@@ -136,7 +136,7 @@ jobs:
       - uses: docker/login-action@v3
         name: Login to Docker Hub
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         name: Build and push
@@ -146,5 +146,5 @@ jobs:
           build-args: |
             FEATURES=crypto-${{ matrix.crypto }},jemalloc
           tags: |
-            ${{ env.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && github.ref_name || format('{0}-{1}', github.ref_name, matrix.crypto) }}
-            ${{ env.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && 'latest' || format('latest-{0}', matrix.crypto) }}
+            ${{ vars.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && github.ref_name || format('{0}-{1}', github.ref_name, matrix.crypto) }}
+            ${{ vars.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && 'latest' || format('latest-{0}', matrix.crypto) }}
