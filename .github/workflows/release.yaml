@@ -122,9 +122,6 @@ jobs:
 
     strategy:
       matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
         crypto:
           - standard
           - quantum
@@ -142,7 +139,7 @@ jobs:
         name: Build and push
         with:
           push: true
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           build-args: |
             FEATURES=crypto-${{ matrix.crypto }},jemalloc
           tags: |
