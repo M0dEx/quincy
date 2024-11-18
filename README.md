@@ -30,9 +30,40 @@ The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an e
 ## Installation
 Binaries are currently available for Windows, Linux (x86_64) and macOS (aarch64) for every official release.
 
+### Cargo
 Using cargo, installation of any published version can be done with a simple command:
 ```bash
 cargo install quincy
+```
+
+### Docker
+Docker images are available on [Docker Hub](https://hub.docker.com/r/m0dex/quincy) in different flavours:
+- `quincy:latest`: The latest version of Quincy with pre-quantum cryptography
+- `quincy:latest-quantum`: The latest version of Quincy with post-quantum cryptography
+- `quincy:<version>-standard`: A specific version of Quincy with pre-quantum cryptography
+- `quincy:<version>-quantum`: A specific version of Quincy with post-quantum cryptography
+
+To run the client/server, you need to add a volume with the configuration files and add needed capabilities:
+```bash
+docker run
+  --rm # remove the container after it stops
+  --cap-add=NET_ADMIN # needed for creating the TUN interface
+  --device=/dev/net/tun # needed for creating the TUN interface
+  -p "55555:55555" # server port-forwarding
+  -v <configuration directory>:/etc/quincy # directory with the configuration files 
+  m0dex/quincy:latest # or any of the other tags
+  quincy-server --config-path /etc/quincy/server.toml
+```
+
+To add or remove a user to the `users` file, you can run the following command:
+```bash
+docker run
+  --rm # remove the container after it stops
+  -it # interactive mode
+  -v <configuration directory>:/etc/quincy # directory with the configuration files 
+  m0dex/quincy:latest # or any of the other tags
+  quincy-users --add /etc/quincy/users
+  # quincy-users --delete /etc/quincy/users
 ```
 
 ## Building from sources
