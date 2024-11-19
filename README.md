@@ -38,10 +38,10 @@ cargo install quincy
 
 ### Docker
 Docker images are available on [Docker Hub](https://hub.docker.com/r/m0dex/quincy) in different flavours:
-- `quincy:latest`: The latest version of Quincy with pre-quantum cryptography
-- `quincy:latest-quantum`: The latest version of Quincy with post-quantum cryptography
-- `quincy:<version>-standard`: A specific version of Quincy with pre-quantum cryptography
-- `quincy:<version>-quantum`: A specific version of Quincy with post-quantum cryptography
+- `m0dex/quincy:latest`: The latest version of Quincy with pre-quantum cryptography
+- `m0dex/quincy:latest-quantum`: The latest version of Quincy with post-quantum cryptography
+- `m0dex/quincy:<version>`: A specific version of Quincy with pre-quantum cryptography
+- `m0dex/quincy:<version>-quantum`: A specific version of Quincy with post-quantum cryptography
 
 To run the client/server, you need to add a volume with the configuration files and add needed capabilities:
 ```bash
