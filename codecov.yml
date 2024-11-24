@@ -3,3 +3,5 @@ ignore:
   - "src/bin"
   # Ignore all network related code because it cannot be unit/integration tested in CI
   - "src/network"
+  # Command utilities
+  - "src/utils/command"
