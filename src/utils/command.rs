@@ -8,6 +8,7 @@ pub fn run_command<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 ) -> Result<Child> {
     Command::new(program)
         .args(arguments)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
         .context("failed to execute command")
