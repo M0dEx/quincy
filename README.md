@@ -43,6 +43,8 @@ Docker images are available on [Docker Hub](https://hub.docker.com/r/m0dex/quinc
 - `m0dex/quincy:<version>`: A specific version of Quincy with pre-quantum cryptography
 - `m0dex/quincy:<version>-quantum`: A specific version of Quincy with post-quantum cryptography
 
+**Note: it is not possible to use the `dns_servers` configuration option due to how Docker networking works**
+
 To run the client/server, you need to add a volume with the configuration files and add needed capabilities:
 ```bash
 docker run
