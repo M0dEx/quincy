@@ -70,7 +70,7 @@ rustls = { version =  "^0.23.18", default-features = false }
 rustls-pemfile = "^2.0"
 
 # Post-quantum
-rustls-post-quantum = { version = "^0.1.0", optional = true }
+rustls-post-quantum = { version = "^0.2.0", optional = true }
 
 # Authentication
 argon2 = "^0.5.0"

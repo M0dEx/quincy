@@ -60,11 +60,11 @@ pub static CRYPTO_PROVIDER: LazyLock<Arc<CryptoProvider>> = LazyLock::new(|| {
 
     #[cfg(all(feature = "crypto-quantum", not(feature = "crypto-standard")))]
     let provider = {
-        use rustls_post_quantum::X25519Kyber768Draft00;
+        use rustls_post_quantum::X25519MLKEM768;
 
         // Use the post-quantum-secure KX algorithm
         CryptoProvider {
-            kx_groups: vec![&X25519Kyber768Draft00],
+            kx_groups: vec![X25519MLKEM768],
             ..default_provider
         }
     };
