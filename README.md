@@ -13,7 +13,7 @@ Quincy uses the QUIC protocol implemented by [`quinn`](https://github.com/quinn-
 
 This tunnel serves two purposes:
 - authentication using a reliable bi-directional stream
-- data transfer using unreliable datagrams (for lower latency and avoidance of multiple reliability layers)
+- data transfer using unreliable datagrams (lower latency and overhead)
 
 After a connection is established and the client is authenticated, a TUN interface is spawned using an IP address provided by the server.
 
@@ -82,7 +82,7 @@ The resulting binaries can be found in the `target/debug` and `target/release` d
 ## Build features
 - `jemalloc`: Uses the jemalloc memory allocator on UNIX systems for improved performance [default: **disabled**]
 - `crypto-standard`: Uses the `ring` crate for pre-quantum cryptographic operations [default: **enabled**]
-- `crypto-quantum`: Uses post-quantum cryptography for key exchange (`X25519Kyber768Draft00`) [default: **disabled**]
+- `crypto-quantum`: Uses post-quantum cryptography for key exchange ([`X25519MLKEM768`](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)) [default: **disabled**]
   - requires the `aws-lc-rs` crypto backend, which requires some build dependencies to be installed (Clang/GCC and CMake)
   - the algorithm has not been standardized yet and is not recommended for production use
   - both the client and server have to be compiled with this feature enabled, otherwise the connection will not be established
