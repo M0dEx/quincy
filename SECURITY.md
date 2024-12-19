@@ -9,7 +9,7 @@ Any other versions affected by the vulnerability will get yanked on crates.io an
 
 ## Reporting a Vulnerability
 
-If you find a vulnerability in Quincy, please report it to the contracts below.
+If you find a vulnerability in Quincy, please report it to the contacts below.
 
 The expected response time is up to 24 hours, at which point you will get updated on the status of the reported vulnerability, including a link to a GitHub Security Advisory if the vulnerability is confirmed.
 
