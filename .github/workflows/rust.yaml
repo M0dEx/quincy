@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        crypto: [crypto-standard, crypto-quantum]
+        crypto: [Standard, Hybrid, PostQuantum]
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -27,8 +27,10 @@ jobs:
         name: Install cargo llvm-cov
       - uses: Swatinem/rust-cache@v2
         name: Cache toolchain and dependencies
-      - run: cargo llvm-cov --no-default-features --features=jemalloc,${{ matrix.crypto }} --workspace --lcov --output-path lcov.info
+      - run: cargo llvm-cov --no-default-features --features=jemalloc --workspace --lcov --output-path lcov.info
         name: Test with coverage
+        env:
+          QUINCY_CRYPTO__KEY_EXCHANGE: ${{ matrix.crypto }}
       - uses: codecov/codecov-action@v4
         name: Upload coverage to Codecov
         env:

@@ -120,11 +120,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        crypto:
-          - standard
-          - quantum
     steps:
       - uses: docker/setup-qemu-action@v3
         name: Set up QEMU
@@ -141,7 +136,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            FEATURES=crypto-${{ matrix.crypto }},jemalloc
+            FEATURES=jemalloc
           tags: |
-            ${{ vars.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && github.ref_name || format('{0}-{1}', github.ref_name, matrix.crypto) }}
-            ${{ vars.DOCKERHUB_USERNAME }}/quincy:${{ startsWith(matrix.crypto, 'standard') && 'latest' || format('latest-{0}', matrix.crypto) }}
+            ${{ vars.DOCKERHUB_USERNAME }}/quincy:${{ github.ref_name }}
+            ${{ vars.DOCKERHUB_USERNAME }}/quincy:latest
