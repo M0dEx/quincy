@@ -11,10 +11,10 @@ COPY src ./src
 COPY Cargo.toml Cargo.lock ./
 
 # Build the application
-ARG FEATURES="crypto-standard,jemalloc"
+ARG FEATURES="jemalloc"
 RUN cargo build --release --no-default-features --features "${FEATURES}"
 
-FROM alpine:3.20
+FROM alpine:3.21
 
 # Create needed directories
 RUN mkdir -p /etc/quincy
