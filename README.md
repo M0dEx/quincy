@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
 [![Matrix](https://img.shields.io/badge/chat-%23quincy:matrix.org-%2346BC99?logo=matrix)](https://matrix.to/#/#quincy:matrix.org)
 
-Quincy is a VPN client and server implementation using the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol.
+Quincy is a VPN client and server implementation using the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol with support for pre-quantum, hybrid and post-quantum cryptography.
 
 ## Design
 Quincy uses the QUIC protocol implemented by [`quinn`](https://github.com/quinn-rs/quinn) to create an encrypted tunnel between clients and the server.
@@ -15,9 +15,9 @@ This tunnel serves two purposes:
 - authentication using a reliable bi-directional stream
 - data transfer using unreliable datagrams (lower latency and overhead)
 
-After a connection is established and the client is authenticated, a TUN interface is spawned using an IP address provided by the server.
+After a connection is established and the client is authenticated, a TUN interface is created using an IP address provided by the server.
 
-When all is set up, a connection task is spawned, which handles IO on the TUN interface and the QUIC connection, effectively relaying packets between them.
+When all is set up, a connection task is spawned, which handles IO on the TUN interface and the QUIC connection, relaying packets between them.
 
 The [`tokio`](https://github.com/tokio-rs/tokio) runtime is used to provide an efficient and scalable implementation.
 
@@ -38,10 +38,8 @@ cargo install quincy
 
 ### Docker
 Docker images are available on [Docker Hub](https://hub.docker.com/r/m0dex/quincy) in different flavours:
-- `m0dex/quincy:latest`: The latest version of Quincy with pre-quantum cryptography
-- `m0dex/quincy:latest-quantum`: The latest version of Quincy with post-quantum cryptography
-- `m0dex/quincy:<version>`: A specific version of Quincy with pre-quantum cryptography
-- `m0dex/quincy:<version>-quantum`: A specific version of Quincy with post-quantum cryptography
+- `m0dex/quincy:latest`: The latest version of Quincy
+- `m0dex/quincy:<version>`: A specific version of Quincy
 
 **Note: it is not possible to use the `dns_servers` configuration option due to how Docker networking works**
 
@@ -79,27 +77,13 @@ cargo build --release
 ```
 The resulting binaries can be found in the `target/debug` and `target/release` directories.
 
-## Build features
+### Requirements
+A C compiler (Clang or GCC) is required for building due to depending on the `aws-lc-rs` cryptography module. 
+
+For more information, see [aws-lc-rs build instructions](https://github.com/aws/aws-lc-rs/blob/main/aws-lc-rs/README.md#Build).
+
+### Build features
 - `jemalloc`: Uses the jemalloc memory allocator on UNIX systems for improved performance [default: **disabled**]
-- `crypto-standard`: Uses the `ring` crate for pre-quantum cryptographic operations [default: **enabled**]
-- `crypto-quantum`: Uses post-quantum cryptography for key exchange ([`X25519MLKEM768`](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)) [default: **disabled**]
-  - requires the `aws-lc-rs` crypto backend, which requires some build dependencies to be installed (Clang/GCC and CMake)
-  - the algorithm has not been standardized yet and is not recommended for production use
-  - both the client and server have to be compiled with this feature enabled, otherwise the connection will not be established
-
-### Jemalloc
-Quincy can optionally use the [jemalloc](https://jemalloc.net/) memory allocator for slightly improved performance.
-To enable it, add the `--features jemalloc` switch to the `build`/`install` command:
-```bash
-cargo build --release --features jemalloc
-```
-
-### Post-quantum key-exchange
-Quincy can optionally use post-quantum cryptography for key exchange.
-To enable it, add the `--features crypto-quantum` switch to the `build`/`install` command:
-```bash
-cargo build --release --no-default-features --features crypto-quantum
-```
 
 ## Usage
 Quincy is split into 3 binaries:

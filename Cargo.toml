@@ -1,6 +1,6 @@
 [package]
 name = "quincy"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
 license = "MIT"
 description = "QUIC-based VPN"
@@ -31,31 +31,23 @@ codegen-units = 1
 panic = "abort"
 
 [features]
-default = ["crypto-standard"]
+default = []
 
 jemalloc = ["jemallocator"]
-crypto-standard = ["quinn/rustls-ring", "rustls/ring"]
-crypto-quantum = ["quinn/rustls-aws-lc-rs", "rustls/aws-lc-rs", "rustls-post-quantum"]
 
 [dependencies]
 # Quinn
-quinn = { version = "^0.11.6" , default-features = false, features = ["log", "platform-verifier", "runtime-tokio"] }
+quinn = { version = "^0.11.6" , default-features = false, features = ["log", "platform-verifier", "runtime-tokio", "rustls-aws-lc-rs"] }
 
 # Interfaces and networking
 tun2 = { version = "^4.0.0", features = ["async"] }
 socket2 = "^0.5.2"
 bytes = "^1.4"
-etherparse = "^0.16.0"
+etherparse = "^0.17.0"
 ipnet = { version = "^2.7", features = ["serde"] }
 
 # Tokio
-tokio = { version = "^1.25", features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "io-util",
-    "signal",
-] }
+tokio = { version = "^1.25", features = ["rt-multi-thread", "macros", "sync", "io-util", "signal"] }
 dashmap = "^6"
 futures = "^0.3.17"
 async-trait = "^0.1.77"
@@ -66,11 +58,8 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 
 # TLS
-rustls = { version =  "^0.23.18", default-features = false }
+rustls = { version =  "^0.23.18", default-features = false, features = ["aws-lc-rs"] }
 rustls-pemfile = "^2.0"
-
-# Post-quantum
-rustls-post-quantum = { version = "^0.2.0", optional = true }
 
 # Authentication
 argon2 = "^0.5.0"
@@ -90,5 +79,5 @@ clap = { version = "^4.1", features = ["derive"] }
 jemallocator = { version = "0.5", optional = true }
 
 [dev-dependencies]
-rstest = "^0.22.0"
+rstest = "^0.24.0"
 tracing-test = { version = "^0.2.4", features = ["no-env-filter"] }

@@ -85,12 +85,12 @@ pub fn dummy_packet(src: Ipv4Addr, dest: Ipv4Addr) -> Bytes {
 
 #[fixture]
 pub fn client_config() -> ClientConfig {
-    ClientConfig::from_path(Path::new("tests/static/client.toml"), "QUINCY").unwrap()
+    ClientConfig::from_path(Path::new("tests/static/client.toml"), "QUINCY_").unwrap()
 }
 
 #[fixture]
 pub fn server_config() -> ServerConfig {
-    ServerConfig::from_path(Path::new("tests/static/server.toml"), "QUINCY").unwrap()
+    ServerConfig::from_path(Path::new("tests/static/server.toml"), "QUINCY_").unwrap()
 }
 
 pub const fn make_queue_pair() -> LazyLock<(TestSender, TestReceiver)> {

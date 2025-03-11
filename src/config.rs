@@ -1,7 +1,6 @@
 use crate::certificates::{load_certificates_from_file, load_private_key_from_file};
 use crate::constants::{
-    CRYPTO_PROVIDER, QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_INITIAL_CIPHER_SUITE,
-    TLS_PROTOCOL_VERSIONS,
+    QUIC_MTU_OVERHEAD, TLS_ALPN_PROTOCOLS, TLS_INITIAL_CIPHER_SUITE, TLS_PROTOCOL_VERSIONS,
 };
 use anyhow::Result;
 use figment::{
@@ -13,7 +12,9 @@ use quinn::{
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
     EndpointConfig, TransportConfig,
 };
-use rustls::RootCertStore;
+use rustls::crypto::aws_lc_rs::kx_group::{MLKEM768, X25519MLKEM768};
+use rustls::crypto::{aws_lc_rs, CryptoProvider};
+use rustls::{CipherSuite, RootCertStore};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::net::IpAddr;
@@ -53,6 +54,9 @@ pub struct ServerConfig {
     /// Miscellaneous connection configuration
     #[serde(default)]
     pub connection: ConnectionConfig,
+    /// Cryptography configuration
+    #[serde(default)]
+    pub crypto: CryptoConfig,
     /// Logging configuration
     pub log: LogConfig,
 }
@@ -80,6 +84,9 @@ pub struct ClientConfig {
     /// Network configuration
     #[serde(default)]
     pub network: NetworkConfig,
+    /// Cryptography configuration
+    #[serde(default)]
+    pub crypto: CryptoConfig,
     /// Logging configuration
     pub log: LogConfig,
 }
@@ -116,6 +123,12 @@ pub struct ConnectionConfig {
     /// The size of the receive buffer of the socket and Quinn endpoint (default = 2097152)
     #[serde(default = "default_buffer_size")]
     pub recv_buffer_size: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct CryptoConfig {
+    /// The key exchange algorithm to use (default = Hybrid)
+    pub key_exchange: KeyExchange,
 }
 
 /// Network configuration
@@ -157,6 +170,13 @@ pub enum AuthType {
     UsersFile,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub enum KeyExchange {
+    Standard,
+    Hybrid,
+    PostQuantum,
+}
+
 pub trait ConfigInit<T: DeserializeOwned> {
     /// Initializes the configuration object from the given Figment
     ///
@@ -183,7 +203,7 @@ pub trait FromPath<T: DeserializeOwned + ConfigInit<T>> {
 
         let figment = Figment::new()
             .merge(Toml::file(path))
-            .merge(Env::prefixed(env_prefix));
+            .merge(Env::prefixed(env_prefix).split("__"));
 
         T::init(figment, env_prefix)
     }
@@ -203,6 +223,14 @@ impl Default for ConnectionConfig {
             keep_alive_interval: default_keep_alive_interval(),
             send_buffer_size: default_buffer_size(),
             recv_buffer_size: default_buffer_size(),
+        }
+    }
+}
+
+impl Default for CryptoConfig {
+    fn default() -> Self {
+        Self {
+            key_exchange: KeyExchange::Hybrid,
         }
     }
 }
@@ -281,11 +309,12 @@ impl ClientConfig {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let mut rustls_config =
-            rustls::ClientConfig::builder_with_provider(CRYPTO_PROVIDER.clone())
-                .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-                .with_root_certificates(cert_store)
-                .with_no_client_auth();
+        let crypto_provider = Arc::from(self.crypto.crypto_provider());
+
+        let mut rustls_config = rustls::ClientConfig::builder_with_provider(crypto_provider)
+            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+            .with_root_certificates(cert_store)
+            .with_no_client_auth();
 
         rustls_config.alpn_protocols.clone_from(&TLS_ALPN_PROTOCOLS);
 
@@ -326,11 +355,12 @@ impl ServerConfig {
         let key = load_private_key_from_file(&certificate_key_path)?;
         let certs = load_certificates_from_file(&certificate_file_path)?;
 
-        let mut rustls_config =
-            rustls::ServerConfig::builder_with_provider(CRYPTO_PROVIDER.clone())
-                .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
-                .with_no_client_auth()
-                .with_single_cert(certs, key.into())?;
+        let crypto_provider = Arc::from(self.crypto.crypto_provider());
+
+        let mut rustls_config = rustls::ServerConfig::builder_with_provider(crypto_provider)
+            .with_protocol_versions(TLS_PROTOCOL_VERSIONS)?
+            .with_no_client_auth()
+            .with_single_cert(certs, key.into())?;
 
         rustls_config.alpn_protocols.clone_from(&TLS_ALPN_PROTOCOLS);
         rustls_config.max_early_data_size = 0;
@@ -367,5 +397,30 @@ impl ConnectionConfig {
 
     pub fn mtu_with_overhead(&self) -> u16 {
         self.mtu + QUIC_MTU_OVERHEAD
+    }
+}
+
+impl CryptoConfig {
+    fn crypto_provider(&self) -> CryptoProvider {
+        let mut custom_provider = aws_lc_rs::default_provider();
+
+        custom_provider.cipher_suites.retain(|suite| {
+            matches!(
+                suite.suite(),
+                CipherSuite::TLS13_AES_256_GCM_SHA384 | CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
+            )
+        });
+
+        match self.key_exchange {
+            KeyExchange::Standard => custom_provider,
+            KeyExchange::Hybrid => CryptoProvider {
+                kx_groups: vec![X25519MLKEM768],
+                ..custom_provider
+            },
+            KeyExchange::PostQuantum => CryptoProvider {
+                kx_groups: vec![MLKEM768],
+                ..custom_provider
+            },
+        }
     }
 }
