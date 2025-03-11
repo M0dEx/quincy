@@ -21,6 +21,7 @@ impl Packet {
         let net_header = headers.net.ok_or(anyhow!("no network header"))?;
 
         match net_header {
+            NetHeaders::Arp(_) => Err(anyhow!("ARP packets do not have IP addresses")),
             NetHeaders::Ipv4(header, _) => Ok(header.destination.into()),
             NetHeaders::Ipv6(header, _) => Ok(header.destination.into()),
         }
