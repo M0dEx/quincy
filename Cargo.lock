@@ -1186,7 +1186,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
- "tun2",
+ "tun",
 ]
 
 [[package]]
@@ -1938,10 +1938,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "tun2"
-version = "4.0.0"
+name = "tun"
+version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21afe73d3d42581a7400fbf5aec057a646ffe3f8bb5ae3f61d88c7e7f4ac77be"
+checksum = "528d712da3fafc9bf7ab8795244cb0197e4bfaa506e26280810f9ae327e20d6a"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -1951,7 +1951,7 @@ dependencies = [
  "libc",
  "log",
  "nix",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "windows-sys 0.59.0",
@@ -2296,6 +2296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "winreg"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
+dependencies = [
+ "cfg-if",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "wintun-bindings"
 version = "0.7.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2308,6 +2318,7 @@ dependencies = [
  "log",
  "thiserror 2.0.12",
  "windows-sys 0.59.0",
+ "winreg",
 ]
 
 [[package]]

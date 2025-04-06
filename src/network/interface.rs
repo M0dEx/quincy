@@ -7,7 +7,7 @@ use bytes::BytesMut;
 use ipnet::IpNet;
 use std::net::IpAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tun2::{AbstractDevice, AsyncDevice, Configuration};
+use tun::{AbstractDevice, AsyncDevice, Configuration};
 
 pub trait InterfaceRead: AsyncReadExt + Sized + Unpin + Send + 'static {
     #[inline]
@@ -72,7 +72,7 @@ impl Interface for AsyncDevice {
             .up();
 
         let interface =
-            tun2::create_as_async(&config).context("failed to create a TUN interface")?;
+            tun::create_as_async(&config).context("failed to create a TUN interface")?;
 
         Ok(interface)
     }
@@ -101,7 +101,7 @@ impl Interface for AsyncDevice {
         });
 
         let interface =
-            tun2::create_as_async(&config).context("failed to create a TUN interface")?;
+            tun::create_as_async(&config).context("failed to create a TUN interface")?;
 
         add_routes(routes, &tunnel_gateway, &interface.tun_name()?)?;
 

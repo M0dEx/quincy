@@ -7,7 +7,7 @@ use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, FromPath};
 use quincy::utils::tracing::log_subscriber;
 use tracing::error;
-use tun2::AsyncDevice;
+use tun::AsyncDevice;
 
 #[derive(Parser)]
 #[command(name = "quincy")]
