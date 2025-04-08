@@ -47,7 +47,7 @@ etherparse = "^0.17.0"
 ipnet = { version = "^2.7", features = ["serde"] }
 
 # Tokio
-tokio = { version = "^1.25", features = ["rt-multi-thread", "macros", "sync", "io-util", "signal"] }
+tokio = { version = "^1.44", features = ["rt-multi-thread", "macros", "sync", "io-util", "signal"] }
 dashmap = "^6"
 futures = "^0.3.17"
 async-trait = "^0.1.77"
