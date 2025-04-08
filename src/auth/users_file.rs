@@ -213,12 +213,11 @@ pub fn save_users_file(users_file: &Path, users: DashMap<String, User>) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use argon2::password_hash::rand_core::OsRng;
+    use crate::auth::users_file::{User, UserDatabase};
     use argon2::password_hash::SaltString;
     use argon2::{Argon2, PasswordHasher};
     use dashmap::DashMap;
-
-    use crate::auth::users_file::{User, UserDatabase};
+    use rand_core::OsRng;
 
     #[tokio::test]
     async fn test_authentication() {
