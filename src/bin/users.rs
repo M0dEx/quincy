@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
-use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use clap::Parser;
 use dashmap::DashMap;
 use quincy::auth::users_file::{load_users_file, save_users_file, User};
+use rand_core::OsRng;
 use rpassword::prompt_password;
 use std::io::Write;
 use std::path::PathBuf;

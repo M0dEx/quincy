@@ -1,6 +1,6 @@
 [package]
 name = "quincy"
-version = "0.14.0"
+version = "0.14.1"
 authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
 license = "MIT"
 description = "QUIC-based VPN"
@@ -47,7 +47,7 @@ etherparse = "^0.17.0"
 ipnet = { version = "^2.7", features = ["serde"] }
 
 # Tokio
-tokio = { version = "^1.25", features = ["rt-multi-thread", "macros", "sync", "io-util", "signal"] }
+tokio = { version = "^1.44.2", features = ["rt-multi-thread", "macros", "sync", "io-util", "signal"] }
 dashmap = "^6"
 futures = "^0.3.17"
 async-trait = "^0.1.77"
@@ -64,6 +64,7 @@ rustls-pemfile = "^2.0"
 # Authentication
 argon2 = "^0.5.0"
 rpassword = "^7.2"
+rand_core = { version = "^0.6.4", features = ["getrandom"] }
 
 # Tracing/Logging
 tracing = { version = "^0.1.37", features = ["release_max_level_info"] }
