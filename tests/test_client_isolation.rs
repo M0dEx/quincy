@@ -3,15 +3,12 @@ use anyhow::Result;
 use common::{
     client_config, make_queue_pair, server_config, TestInterface, TestReceiver, TestSender,
 };
-use ipnet::IpNet;
-use quincy::network::interface::Interface;
 use quincy::{
     client::QuincyClient,
     config::{ClientConfig, ServerConfig},
     server::QuincyServer,
 };
 use rstest::rstest;
-use std::net::IpAddr;
 use std::sync::LazyLock;
 use std::{net::Ipv4Addr, time::Duration};
 use tokio::time::timeout;
@@ -32,6 +29,7 @@ pub static TEST_QUEUE_CLIENT_B_RECV: LazyLock<(TestSender, TestReceiver)> = make
 pub static TEST_QUEUE_SERVER_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 pub static TEST_QUEUE_SERVER_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 
+interface_impl_imports!();
 interface_impl!(
     ClientAInterface,
     TEST_QUEUE_CLIENT_A_SEND,
@@ -51,16 +49,16 @@ interface_impl!(
 #[rstest]
 #[tokio::test]
 async fn test_client_isolation(client_config: ClientConfig, server_config: ServerConfig) {
-    let client_a = QuincyClient::new(client_config.clone());
-    let client_b = QuincyClient::new(client_config);
+    let mut client_a: QuincyClient<ClientAInterface> = QuincyClient::new(client_config.clone());
+    let mut client_b: QuincyClient<ClientBInterface> = QuincyClient::new(client_config);
     let server = QuincyServer::new(server_config).unwrap();
 
     let ip_client_a = Ipv4Addr::new(10, 0, 0, 2);
     let ip_client_b = Ipv4Addr::new(10, 0, 0, 3);
 
     tokio::spawn(async move { server.run::<ServerInterface>().await.unwrap() });
-    tokio::spawn(async move { client_a.run::<ClientAInterface>().await.unwrap() });
-    tokio::spawn(async move { client_b.run::<ClientBInterface>().await.unwrap() });
+    client_a.start().await.unwrap();
+    client_b.start().await.unwrap();
 
     // Test client A -> client B
     let test_packet = dummy_packet(ip_client_a, ip_client_b);

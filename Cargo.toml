@@ -1,6 +1,6 @@
 [package]
 name = "quincy"
-version = "0.14.1"
+version = "0.15.0"
 authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
 license = "MIT"
 description = "QUIC-based VPN"
@@ -31,19 +31,19 @@ codegen-units = 1
 panic = "abort"
 
 [features]
-default = []
+default = ["offload"]
 
+offload = []
 jemalloc = ["jemallocator"]
 
 [dependencies]
 # Quinn
-quinn = { version = "^0.11.6" , default-features = false, features = ["log", "platform-verifier", "runtime-tokio", "rustls-aws-lc-rs"] }
+quinn = { version = "^0.11.6", default-features = false, features = ["log", "platform-verifier", "runtime-tokio", "rustls-aws-lc-rs"] }
 
 # Interfaces and networking
-tun2 = { version = "^4.0.0", features = ["async"] }
+tun-rs = { version = "=2.1.0", features = ["async_tokio"] }  # pinned audited version
 socket2 = "^0.5.2"
 bytes = "^1.4"
-etherparse = "^0.17.0"
 ipnet = { version = "^2.7", features = ["serde"] }
 
 # Tokio
@@ -58,7 +58,7 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 
 # TLS
-rustls = { version =  "^0.23.18", default-features = false, features = ["aws-lc-rs"] }
+rustls = { version = "^0.23.18", default-features = false, features = ["aws-lc-rs"] }
 rustls-pemfile = "^2.0"
 
 # Authentication
@@ -80,5 +80,6 @@ clap = { version = "^4.1", features = ["derive"] }
 jemallocator = { version = "0.5", optional = true }
 
 [dev-dependencies]
-rstest = "^0.24.0"
+rstest = "^0.25.0"
+etherparse = "^0.18.0"
 tracing-test = { version = "^0.2.4", features = ["no-env-filter"] }

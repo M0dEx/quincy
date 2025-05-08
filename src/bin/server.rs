@@ -4,10 +4,10 @@ use std::process::exit;
 use anyhow::Result;
 use clap::Parser;
 use quincy::config::{FromPath, ServerConfig};
+use quincy::network::interface::tun_rs::TunRsInterface;
 use quincy::server::QuincyServer;
 use quincy::utils::tracing::log_subscriber;
 use tracing::error;
-use tun2::AsyncDevice;
 
 #[derive(Parser)]
 #[command(name = "quincy")]
@@ -40,5 +40,5 @@ async fn run_server() -> Result<()> {
     tracing::subscriber::set_global_default(log_subscriber(&config.log.level))?;
 
     let server = QuincyServer::new(config)?;
-    server.run::<AsyncDevice>().await
+    server.run::<TunRsInterface>().await
 }

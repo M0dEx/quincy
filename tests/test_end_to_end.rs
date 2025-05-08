@@ -3,13 +3,10 @@ use crate::common::{
     TestSender,
 };
 use anyhow::Result;
-use ipnet::IpNet;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, ServerConfig};
-use quincy::network::interface::Interface;
 use quincy::server::QuincyServer;
 use rstest::rstest;
-use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::sync::LazyLock;
 
@@ -25,6 +22,7 @@ pub static TEST_QUEUE_CLIENT_RECV: LazyLock<(TestSender, TestReceiver)> = make_q
 pub static TEST_QUEUE_SERVER_SEND: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 pub static TEST_QUEUE_SERVER_RECV: LazyLock<(TestSender, TestReceiver)> = make_queue_pair();
 
+interface_impl_imports!();
 interface_impl!(
     ClientInterface,
     TEST_QUEUE_CLIENT_SEND,
@@ -39,14 +37,14 @@ interface_impl!(
 #[rstest]
 #[tokio::test]
 async fn test_end_to_end_communication(client_config: ClientConfig, server_config: ServerConfig) {
-    let client = QuincyClient::new(client_config);
+    let mut client: QuincyClient<ClientInterface> = QuincyClient::new(client_config);
     let server = QuincyServer::new(server_config).unwrap();
 
     let ip_server = Ipv4Addr::new(10, 0, 0, 1);
     let ip_client = Ipv4Addr::new(10, 0, 0, 2);
 
     tokio::spawn(async move { server.run::<ServerInterface>().await.unwrap() });
-    tokio::spawn(async move { client.run::<ClientInterface>().await.unwrap() });
+    client.start().await.unwrap();
 
     // Test client -> server
     let test_packet = dummy_packet(ip_client, ip_server);

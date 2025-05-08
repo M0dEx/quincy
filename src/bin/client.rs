@@ -5,9 +5,9 @@ use anyhow::Result;
 use clap::Parser;
 use quincy::client::QuincyClient;
 use quincy::config::{ClientConfig, FromPath};
+use quincy::network::interface::tun_rs::TunRsInterface;
 use quincy::utils::tracing::log_subscriber;
 use tracing::error;
-use tun2::AsyncDevice;
 
 #[derive(Parser)]
 #[command(name = "quincy")]
@@ -39,6 +39,7 @@ async fn run_client() -> Result<()> {
     // Enable tracing with the log level from the configuration.
     tracing::subscriber::set_global_default(log_subscriber(&config.log.level))?;
 
-    let client = QuincyClient::new(config);
-    client.run::<AsyncDevice>().await
+    let mut client: QuincyClient<TunRsInterface> = QuincyClient::new(config);
+    client.start().await?;
+    client.wait_for_shutdown().await
 }
