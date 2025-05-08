@@ -8,18 +8,18 @@ use crate::auth::server::AuthServer;
 use crate::config::ServerConfig;
 use crate::server::connection::QuincyConnection;
 use crate::socket::bind_socket;
-use crate::utils::signal_handler::handle_ctrl_c;
 use anyhow::Result;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use quinn::{Endpoint, VarInt};
+use tokio::signal;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use self::address_pool::AddressPool;
 use crate::constants::{PACKET_BUFFER_SIZE, PACKET_CHANNEL_SIZE, QUINN_RUNTIME};
-use crate::network::interface::{Interface, InterfaceRead, InterfaceWrite};
+use crate::network::interface::{Interface, InterfaceIO};
 use crate::network::packet::Packet;
 use crate::utils::tasks::abort_all;
 use tracing::{debug, info, warn};
@@ -39,7 +39,7 @@ impl QuincyServer {
     /// ### Arguments
     /// - `config` - the server configuration
     pub fn new(config: ServerConfig) -> Result<Self> {
-        let address_pool = AddressPool::new(config.tunnel_network.into());
+        let address_pool = AddressPool::new(config.tunnel_network);
 
         Ok(Self {
             config,
@@ -49,32 +49,35 @@ impl QuincyServer {
     }
 
     /// Starts the tasks for this instance of Quincy tunnel and listens for incoming connections.
-    pub async fn run<I: Interface>(&self) -> Result<()> {
-        let interface = I::create_server(
-            self.config.tunnel_network.into(),
+    pub async fn run<I: InterfaceIO>(&self) -> Result<()> {
+        let interface: Interface<I> = Interface::create(
+            self.config.tunnel_network,
             self.config.connection.mtu,
+            Some(self.config.tunnel_network.network()),
+            None,
+            None,
         )?;
+        let interface = Arc::new(interface);
+
         let auth_server = AuthServer::new(
             self.config.authentication.clone(),
-            self.config.tunnel_network.into(),
+            self.config.tunnel_network,
             self.address_pool.clone(),
             self.config.connection.connection_timeout,
         )?;
 
-        let (tun_read, tun_write) = interface.split();
         let (sender, receiver) = channel(PACKET_CHANNEL_SIZE);
 
         let mut tasks = FuturesUnordered::new();
 
         tasks.extend([
             tokio::spawn(Self::process_outbound_traffic(
-                tun_read,
+                interface.clone(),
                 self.connection_queues.clone(),
-                self.config.connection.mtu as usize,
             )),
             tokio::spawn(Self::process_inbound_traffic(
                 self.connection_queues.clone(),
-                tun_write,
+                interface,
                 receiver,
                 self.config.isolate_clients,
             )),
@@ -169,13 +172,13 @@ impl QuincyServer {
                 }
 
                 // Shutdown
-                signal_res = handle_ctrl_c() => {
+                _ = signal::ctrl_c() => {
                     info!("Received shutdown signal, shutting down");
                     let _ = abort_all(connection_tasks).await;
 
                     endpoint.close(VarInt::from_u32(0x01), "Server shutdown".as_bytes());
 
-                    return signal_res;
+                    return Ok(());
                 }
             }
         }
@@ -210,14 +213,13 @@ impl QuincyServer {
     /// - `connection_queues` - the queues for sending data to the QUIC connections
     /// - `buffer_size` - the size of the buffer to use when reading from the TUN interface
     async fn process_outbound_traffic(
-        mut tun_read: impl InterfaceRead,
+        interface: Arc<Interface<impl InterfaceIO>>,
         connection_queues: ConnectionQueues,
-        buffer_size: usize,
     ) -> Result<()> {
         debug!("Started tunnel outbound traffic task (interface -> connection queue)");
 
         loop {
-            let packet = tun_read.read_packet(buffer_size).await?;
+            let packet = interface.read_packet().await?;
             let dest_addr = match packet.destination() {
                 Ok(addr) => addr,
                 Err(e) => {
@@ -248,16 +250,16 @@ impl QuincyServer {
     /// - `isolate_clients` - whether to isolate clients from each other
     async fn process_inbound_traffic(
         connection_queues: ConnectionQueues,
-        tun_write: impl InterfaceWrite,
+        interface: Arc<Interface<impl InterfaceIO>>,
         ingress_queue: Receiver<Packet>,
         isolate_clients: bool,
     ) -> Result<()> {
         debug!("Started tunnel inbound traffic task (tunnel queue -> interface)");
 
         if isolate_clients {
-            relay_isolated(connection_queues, tun_write, ingress_queue).await
+            relay_isolated(connection_queues, interface, ingress_queue).await
         } else {
-            relay_unisolated(connection_queues, tun_write, ingress_queue).await
+            relay_unisolated(connection_queues, interface, ingress_queue).await
         }
     }
 }
@@ -265,51 +267,47 @@ impl QuincyServer {
 #[inline]
 async fn relay_isolated(
     connection_queues: ConnectionQueues,
-    mut tun_write: impl InterfaceWrite,
+    interface: Arc<Interface<impl InterfaceIO>>,
     mut ingress_queue: Receiver<Packet>,
 ) -> Result<()> {
-    let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
-
     loop {
-        packets.clear();
+        let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
         ingress_queue
             .recv_many(&mut packets, PACKET_BUFFER_SIZE)
             .await;
 
-        for packet in &packets {
-            let dest_addr = match packet.destination() {
-                Ok(addr) => addr,
-                Err(e) => {
-                    warn!("Received packet with malformed header structure: {e}");
-                    continue;
-                }
-            };
+        let filtered_packets = packets
+            .into_iter()
+            .filter(|packet| {
+                let dest_addr = match packet.destination() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        warn!("Received packet with malformed header structure: {e}");
+                        return false;
+                    }
+                };
+                !connection_queues.contains_key(&dest_addr)
+            })
+            .collect::<Vec<_>>();
 
-            if connection_queues.contains_key(&dest_addr) {
-                // Drop the packet if the destination is a known client
-                continue;
-            }
-
-            tun_write.write_packet(packet).await?;
-        }
+        interface.write_packets(filtered_packets).await?;
     }
 }
 
 #[inline]
 async fn relay_unisolated(
     connection_queues: ConnectionQueues,
-    mut tun_write: impl InterfaceWrite,
+    interface: Arc<Interface<impl InterfaceIO>>,
     mut ingress_queue: Receiver<Packet>,
 ) -> Result<()> {
-    let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
-
     loop {
-        packets.clear();
+        let mut packets = Vec::with_capacity(PACKET_BUFFER_SIZE);
+
         ingress_queue
             .recv_many(&mut packets, PACKET_BUFFER_SIZE)
             .await;
 
-        for packet in &packets {
+        for packet in packets {
             let dest_addr = match packet.destination() {
                 Ok(addr) => addr,
                 Err(e) => {
@@ -320,9 +318,9 @@ async fn relay_unisolated(
 
             match connection_queues.get(&dest_addr) {
                 // Send the packet to the appropriate QUIC connection
-                Some(connection_queue) => connection_queue.send(packet.clone().into()).await?,
+                Some(connection_queue) => connection_queue.send(packet.into()).await?,
                 // Send the packet to the TUN interface
-                None => tun_write.write_packet(packet).await?,
+                None => interface.write_packet(packet).await?,
             }
         }
     }

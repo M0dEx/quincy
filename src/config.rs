@@ -7,7 +7,7 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
-use ipnet::{IpNet, Ipv4Net};
+use ipnet::IpNet;
 use quinn::{
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
     EndpointConfig, TransportConfig,
@@ -45,7 +45,7 @@ pub struct ServerConfig {
     #[serde(default = "default_false_fn")]
     pub reuse_socket: bool,
     /// The network address of this tunnel (address + mask)
-    pub tunnel_network: Ipv4Net,
+    pub tunnel_network: IpNet,
     /// Whether to isolate clients from each other (default = true)
     #[serde(default = "default_true_fn")]
     pub isolate_clients: bool,
@@ -297,7 +297,7 @@ impl ClientConfig {
     ///
     /// ### Returns
     /// - `quinn::ClientConfig` - the Quinn client configuration
-    pub fn as_quinn_client_config(&self) -> Result<quinn::ClientConfig> {
+    pub fn quinn_client_config(&self) -> Result<quinn::ClientConfig> {
         let mut cert_store = RootCertStore::empty();
 
         self.authentication
