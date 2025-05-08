@@ -280,11 +280,31 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "c2rust-bitfields"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "367e5d1b30f28be590b6b3868da1578361d29d9bfac516d22f497d28ed7c9055"
+dependencies = [
+ "c2rust-bitfields-derive 0.19.0",
+]
+
+[[package]]
+name = "c2rust-bitfields"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46dc7d2bffa0d0b3d47eb2dc69973466858281446c2ac9f6d8a10e92ab1017df"
 dependencies = [
- "c2rust-bitfields-derive",
+ "c2rust-bitfields-derive 0.20.0",
+]
+
+[[package]]
+name = "c2rust-bitfields-derive"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a279db9c50c4024eeca1a763b6e0f033848ce74e83e47454bcf8a8a98f7b0b56"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1215,6 +1235,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-test",
  "tun-rs",
+ "wintun-bindings",
 ]
 
 [[package]]
@@ -1977,7 +1998,7 @@ dependencies = [
  "blocking",
  "byteorder",
  "bytes",
- "c2rust-bitfields",
+ "c2rust-bitfields 0.20.0",
  "cfg-if",
  "encoding_rs",
  "getifaddrs",
@@ -2420,6 +2441,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
 dependencies = [
  "cfg-if",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "wintun-bindings"
+version = "0.7.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "605f50b13e12e1f9f99dc5e93701d779dbe47282fec186cb8a079165368d3124"
+dependencies = [
+ "c2rust-bitfields 0.19.0",
+ "libloading",
+ "log",
+ "thiserror 2.0.12",
  "windows-sys 0.59.0",
 ]
 

@@ -1,4 +1,5 @@
 use crate::constants::PACKET_CHANNEL_SIZE;
+use crate::network::dns::{add_dns_servers, delete_dns_servers};
 use crate::network::interface::InterfaceIO;
 use crate::network::packet::Packet;
 use crate::network::route::add_routes;
@@ -110,16 +111,12 @@ impl InterfaceIO for TunRsInterface {
     }
 
     fn configure_dns(&self, dns_servers: &[IpAddr]) -> Result<()> {
-        #[cfg(not(target_os = "windows"))]
-        {
-            use crate::network::dns::add_dns_servers;
-            add_dns_servers(
-                dns_servers,
-                &self.name().ok_or_else(|| {
-                    anyhow!("attempted to configure DNS for interface without name")
-                })?,
-            )?;
-        }
+        add_dns_servers(
+            dns_servers,
+            &self
+                .name()
+                .ok_or_else(|| anyhow!("attempted to configure DNS for interface without name"))?,
+        )?;
 
         info!("Added DNS servers: {dns_servers:?}");
 
@@ -133,11 +130,7 @@ impl InterfaceIO for TunRsInterface {
     }
 
     fn cleanup_dns(&self, dns_servers: &[IpAddr]) -> Result<()> {
-        #[cfg(not(target_os = "windows"))]
-        {
-            use crate::network::dns::delete_dns_servers;
-            delete_dns_servers()?;
-        }
+        delete_dns_servers()?;
 
         info!("Cleaned up DNS servers: {:?}", dns_servers);
 

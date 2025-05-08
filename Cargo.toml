@@ -79,6 +79,10 @@ clap = { version = "^4.1", features = ["derive"] }
 [target.'cfg(unix)'.dependencies]
 jemallocator = { version = "0.5", optional = true }
 
+# WinTun
+[target.'cfg(windows)'.dependencies]
+wintun-bindings = { version = "0.7.31", features = ["verify_binary_signature"] }
+
 [dev-dependencies]
 rstest = "^0.25.0"
 etherparse = "^0.18.0"
