@@ -330,13 +330,15 @@ fn writer_task(
     use tun_rs::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 
     let batch_size = (u16::MAX as usize / mtu).min(IDEAL_BATCH_SIZE);
+    let send_buf_size = VIRTIO_NET_HDR_LEN * batch_size + batch_size * mtu;
 
     let mut gro_table = GROTable::default();
-    let mut packet_buf = Vec::with_capacity(batch_size);
+    let mut send_buf = BytesMut::with_capacity(send_buf_size);
 
     tokio::spawn(async move {
         loop {
-            packet_buf.clear();
+            send_buf.reserve(send_buf_size);
+            let mut packet_buf = Vec::with_capacity(batch_size);
 
             let num_packets = writer_channel_rx
                 .recv_many(&mut packet_buf, batch_size)
@@ -348,12 +350,11 @@ fn writer_task(
             }
 
             let mut send_bufs = packet_buf
-                .iter()
+                .into_iter()
                 .map(|packet| {
-                    let mut send_buf = BytesMut::with_capacity(VIRTIO_NET_HDR_LEN + packet.len());
                     send_buf.resize(VIRTIO_NET_HDR_LEN, 0);
-                    send_buf.extend_from_slice(packet);
-                    send_buf
+                    send_buf.extend_from_slice(&packet);
+                    send_buf.split()
                 })
                 .collect::<Vec<_>>();
 

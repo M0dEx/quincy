@@ -95,11 +95,15 @@ impl<I: InterfaceIO> Interface<I> {
 
     pub fn configure(&self) -> Result<()> {
         if let Some(routes) = self.routes.as_deref() {
-            self.inner.configure_routes(routes)?;
+            if !routes.is_empty() {
+                self.inner.configure_routes(routes)?;
+            }
         }
 
         if let Some(dns_servers) = self.dns_servers.as_deref() {
-            self.inner.configure_dns(dns_servers)?;
+            if !dns_servers.is_empty() {
+                self.inner.configure_dns(dns_servers)?;
+            }
         }
 
         Ok(())
