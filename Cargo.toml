@@ -1,6 +1,6 @@
 [package]
 name = "quincy"
-version = "0.15.0"
+version = "0.15.1"
 authors = ["Jakub Kubík <jakub.kubik.it@protonmail.com>"]
 license = "MIT"
 description = "QUIC-based VPN"
@@ -38,7 +38,7 @@ jemalloc = ["jemallocator"]
 
 [dependencies]
 # Quinn
-quinn = { version = "^0.11.6", default-features = false, features = ["log", "platform-verifier", "runtime-tokio", "rustls-aws-lc-rs"] }
+quinn = { version = "^0.11.8", default-features = false, features = ["log", "platform-verifier", "runtime-tokio", "rustls-aws-lc-rs"] }
 
 # Interfaces and networking
 tun-rs = { version = "=2.1.0", features = ["async_tokio"] }  # pinned audited version
